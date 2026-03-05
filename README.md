@@ -71,16 +71,6 @@
 5. 默认地址：service `localhost:48760`，Web UI `http://localhost:48761/`。
 6. 关闭：访问 `http://localhost:48761/__quit`（会关闭 web；若 web 自动拉起过 service，会尝试一并关闭 service）。
 
-## Render 一键部署
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mydracula/codex-manager)
-
-仓库已提供 `render.yaml`（Blueprint），当前为 **Render Free 单服务方案**：
-- 仅创建一个 Web 服务 `codexmanager`。
-- 容器内由 `codexmanager-web` 自动拉起 `codexmanager-service`。
-
-> 注意：该 Free 方案使用本地 SQLite（`/tmp/codexmanager.db`），实例重启/休眠/重建后数据会丢失。
-> 当前项目后端基于 SQLite（`rusqlite`），暂不支持外置 Postgres/MySQL 作为主数据库。
-
 ## Docker 部署
 ### 方式 1：docker compose（推荐）
 ```bash
@@ -140,6 +130,12 @@ pwsh -NoLogo -NoProfile -File scripts/rebuild.ps1 -Bundle nsis -CleanDist -Porta
 
 ## GitHub Actions（全部手动触发）
 当前 workflow 均为 `workflow_dispatch`，不会自动触发。
+
+- `docker-images.yml`
+  - 用途：构建 Docker 镜像（`codexmanager-service` / `codexmanager-web`）
+  - 触发：手动
+  - 输出：默认上传两个 Docker 镜像归档（`.tar.gz`）到 Actions Artifacts
+  - 可选：开启 `push_to_ghcr=true` 后推送到 GHCR
 
 - `release-all.yml`
   - 用途：一键发布 Desktop + Service 全平台产物（单次触发）
