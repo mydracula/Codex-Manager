@@ -22,6 +22,7 @@ COPY crates ./crates
 COPY --from=ui /src/apps/dist ./apps/dist
 
 RUN cargo build -p codexmanager-web --release --features embedded-ui
+RUN cargo build -p codexmanager-service --release
 
 FROM debian:bookworm-slim
 
@@ -30,12 +31,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/codexmanager-web /usr/local/bin/codexmanager-web
+COPY --from=builder /src/target/release/codexmanager-service /usr/local/bin/codexmanager-service
 
 ENV CODEXMANAGER_WEB_ADDR=0.0.0.0:48761
-ENV CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1
 ENV CODEXMANAGER_WEB_NO_OPEN=1
-# 默认值适配 docker-compose 的服务名；单独运行时可覆盖为外部 service 的地址。
-ENV CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760
+ENV CODEXMANAGER_SERVICE_ADDR=127.0.0.1:48760
 
 EXPOSE 48761
 

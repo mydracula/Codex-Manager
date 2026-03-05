@@ -74,9 +74,12 @@
 ## Render 一键部署
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mydracula/codex-manager)
 
-仓库已提供 `render.yaml`（Blueprint），点击按钮后可直接创建：
-- 私有服务：`codexmanager-service`（挂载 `/data` 持久化磁盘）
-- Web 服务：`codexmanager-web`
+仓库已提供 `render.yaml`（Blueprint），当前为 **Render Free 单服务方案**：
+- 仅创建一个 Web 服务 `codexmanager`。
+- 容器内由 `codexmanager-web` 自动拉起 `codexmanager-service`。
+
+> 注意：该 Free 方案使用本地 SQLite（`/tmp/codexmanager.db`），实例重启/休眠/重建后数据会丢失。
+> 当前项目后端基于 SQLite（`rusqlite`），暂不支持外置 Postgres/MySQL 作为主数据库。
 
 ## Docker 部署
 ### 方式 1：docker compose（推荐）
