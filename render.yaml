@@ -1,0 +1,38 @@
+services:
+  - type: pserv
+    name: codexmanager-service
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./docker/Dockerfile.service
+    envVars:
+      - fromGroup: codexmanager-shared
+      - key: CODEXMANAGER_SERVICE_ADDR
+        value: 0.0.0.0:48760
+      - key: CODEXMANAGER_DB_PATH
+        value: /data/codexmanager.db
+    disk:
+      name: codexmanager-data
+      mountPath: /data
+      sizeGB: 1
+
+  - type: web
+    name: codexmanager-web
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./docker/Dockerfile.web
+    envVars:
+      - fromGroup: codexmanager-shared
+      - key: CODEXMANAGER_WEB_ADDR
+        value: 0.0.0.0:48761
+      - key: CODEXMANAGER_WEB_NO_SPAWN_SERVICE
+        value: "1"
+      - key: CODEXMANAGER_SERVICE_ADDR
+        value: codexmanager-service:48760
+      - key: CODEXMANAGER_WEB_NO_OPEN
+        value: "1"
+
+envVarGroups:
+  - name: codexmanager-shared
+    envVars:
+      - key: CODEXMANAGER_RPC_TOKEN
+        generateValue: true

@@ -71,6 +71,13 @@
 5. 默认地址：service `localhost:48760`，Web UI `http://localhost:48761/`。
 6. 关闭：访问 `http://localhost:48761/__quit`（会关闭 web；若 web 自动拉起过 service，会尝试一并关闭 service）。
 
+## Render 一键部署
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mydracula/codex-manager)
+
+仓库已提供 `render.yaml`（Blueprint），点击按钮后可直接创建：
+- 私有服务：`codexmanager-service`（挂载 `/data` 持久化磁盘）
+- Web 服务：`codexmanager-web`
+
 ## Docker 部署
 ### 方式 1：docker compose（推荐）
 ```bash
