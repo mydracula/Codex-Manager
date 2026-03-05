@@ -95,6 +95,15 @@ docker run --rm -p 48761:48761 \
   codexmanager-web
 ```
 
+### 方式 3：单镜像运行（容器内自动拉起 service）
+```bash
+docker build -f docker/Dockerfile.web -t codexmanager-all-in-one .
+docker run --rm -p 48761:48761 \
+  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
+  -e CODEXMANAGER_DB_PATH=/tmp/codexmanager.db \
+  codexmanager-all-in-one
+```
+
 ## 开发与构建
 ### 前端
 ```bash
