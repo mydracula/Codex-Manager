@@ -11,7 +11,7 @@ on:
       image_namespace:
         description: "Image namespace (for GHCR push), e.g. ghcr.io/mydracula"
         required: false
-        default: ""
+        default: "ghcr.io/mydracula"
         type: string
 
 permissions:
@@ -42,9 +42,6 @@ jobs:
         shell: bash
         run: |
           namespace="${{ github.event.inputs.image_namespace }}"
-          if [ -z "$namespace" ]; then
-            namespace="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
-          fi
           namespace="${namespace%/}"
           echo "service_image=${namespace}/codex-manager-service" >> "$GITHUB_OUTPUT"
           echo "web_image=${namespace}/codex-manager-web" >> "$GITHUB_OUTPUT"
