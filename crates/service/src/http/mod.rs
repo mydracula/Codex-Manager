@@ -5,6 +5,7 @@ pub mod server;
 
 pub(crate) mod backend_router;
 pub(crate) mod backend_runtime;
+pub(crate) mod embedded_ui;
 pub(crate) mod proxy_bridge;
 
 pub(crate) mod header_filter;

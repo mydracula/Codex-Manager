@@ -3,6 +3,9 @@ name = "codexmanager-service"
 version.workspace = true
 edition = "2021"
 
+[features]
+embedded-ui = ["dep:include_dir"]
+
 [dependencies]
 codexmanager-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
@@ -14,6 +17,8 @@ sha2 = "0.10"
 tiny_http = "0.12"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+mime_guess = "2"
+include_dir = { version = "0.7", optional = true }
 url = "2"
 webbrowser = "0.8"
 urlencoding = "2"
