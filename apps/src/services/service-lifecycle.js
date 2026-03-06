@@ -11,6 +11,7 @@ export function createServiceLifecycle({
   ensureAutoRefreshTimer,
   stopAutoRefreshTimer,
   onStartupState,
+  onDeferredRequestLogsRefresh,
 }) {
   function isTauriRuntime() {
     return Boolean(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
@@ -106,8 +107,13 @@ export function createServiceLifecycle({
     if (fromBootstrap) {
       notifyStartupState(true, "正在加载账号与用量数据...");
     }
-    await refreshAll({ refreshRemoteUsage: false, refreshRemoteModels: false });
+    await refreshAll({
+      refreshRemoteUsage: false,
+      refreshRemoteModels: false,
+      includeRequestLogs: false,
+    });
     void maybeRefreshApiModelsCache?.();
+    void onDeferredRequestLogsRefresh?.();
     ensureAutoRefreshTimer(state, async () => {
       await refreshAll({ refreshRemoteUsage: true, refreshRemoteModels: false });
       void maybeRefreshApiModelsCache?.();
@@ -157,8 +163,13 @@ export function createServiceLifecycle({
     if (ok) {
       updateServiceToggle();
       notifyStartupState(true, "正在加载账号与用量数据...");
-      await refreshAll({ refreshRemoteUsage: false, refreshRemoteModels: false });
+      await refreshAll({
+        refreshRemoteUsage: false,
+        refreshRemoteModels: false,
+        includeRequestLogs: false,
+      });
       void maybeRefreshApiModelsCache?.();
+      void onDeferredRequestLogsRefresh?.();
       // 中文注释：探活成功后立即复用统一定时器入口，避免“已连通但未启动自动刷新”的状态分叉。
       ensureAutoRefreshTimer(state, async () => {
         await refreshAll({ refreshRemoteUsage: true, refreshRemoteModels: false });

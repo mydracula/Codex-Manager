@@ -75,6 +75,7 @@ const {
 } = createThemeController({ dom });
 
 function renderCurrentPageView(page = state.currentPage) {
+  ensureRequestLogsReadyForPage(page);
   renderCurrentView(page, buildMainRenderActions());
 }
 
@@ -140,17 +141,22 @@ let upstreamProxySyncedProbeId = -1;
 let backgroundTasksSyncInFlight = null;
 let backgroundTasksSyncedProbeId = -1;
 let apiModelsRemoteRefreshInFlight = null;
+let requestLogsBootstrapRefreshInFlight = null;
 function buildRefreshAllTasks(options = {}) {
   const refreshRemoteUsage = options.refreshRemoteUsage === true;
   const refreshRemoteModels = options.refreshRemoteModels === true;
-  return [
+  const includeRequestLogs = options.includeRequestLogs !== false;
+  const tasks = [
     { name: "accounts", label: "账号列表", run: refreshAccounts },
     { name: "usage", label: "账号用量", run: () => refreshUsageList({ refreshRemote: refreshRemoteUsage }) },
     { name: "api-models", label: "模型列表", run: () => refreshApiModels({ refreshRemote: refreshRemoteModels }) },
     { name: "api-keys", label: "平台密钥", run: refreshApiKeys },
-    { name: "request-logs", label: "请求日志", run: () => refreshRequestLogs(state.requestLogQuery) },
     { name: "request-log-today-summary", label: "今日摘要", run: refreshRequestLogTodaySummary },
   ];
+  if (includeRequestLogs) {
+    tasks.push({ name: "request-logs", label: "请求日志", run: () => refreshRequestLogs(state.requestLogQuery) });
+  }
+  return tasks;
 }
 
 function isTauriRuntime() {
@@ -1662,6 +1668,7 @@ const serviceLifecycle = createServiceLifecycle({
   ensureAutoRefreshTimer,
   stopAutoRefreshTimer,
   onStartupState: (loading, message) => setStartupMask(loading, message),
+  onDeferredRequestLogsRefresh: scheduleDeferredRequestLogsRefresh,
 });
 
 const loginFlow = createLoginFlow({
@@ -1727,6 +1734,61 @@ function buildMainRenderActions() {
 
 function renderAccountsView() {
   renderAccountsOnly(buildMainRenderActions());
+}
+
+function ensureRequestLogsReadyForPage(page = state.currentPage) {
+  if (page !== "requestlogs") {
+    return;
+  }
+  if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
+    return;
+  }
+  requestLogsBootstrapRefreshInFlight = (async () => {
+    try {
+      const ok = await ensureConnected();
+      serviceLifecycle.updateServiceToggle();
+      if (!ok) return;
+      const applied = await refreshRequestLogs(state.requestLogQuery, { latestOnly: true, timeoutMs: 15000 });
+      if (applied !== false) {
+        renderCurrentPageView("requestlogs");
+      }
+    } catch (err) {
+      console.warn("[requestlogs] deferred refresh failed", err);
+    } finally {
+      requestLogsBootstrapRefreshInFlight = null;
+    }
+  })();
+}
+
+function scheduleDeferredRequestLogsRefresh() {
+  if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
+    return;
+  }
+  const run = () => {
+    if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
+      return;
+    }
+    requestLogsBootstrapRefreshInFlight = (async () => {
+      try {
+        const applied = await refreshRequestLogs(state.requestLogQuery, {
+          latestOnly: true,
+          timeoutMs: 15000,
+        });
+        if (applied !== false && state.currentPage === "requestlogs") {
+          renderCurrentPageView("requestlogs");
+        }
+      } catch (err) {
+        console.warn("[requestlogs] background refresh failed", err);
+      } finally {
+        requestLogsBootstrapRefreshInFlight = null;
+      }
+    })();
+  };
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 1200 });
+    return;
+  }
+  setTimeout(run, 400);
 }
 
 function bindEvents() {

@@ -40,7 +40,10 @@ function formatConnectError(err) {
     .replace(/^service_stop task failed:\s*/i, "")
     .trim();
   const lower = normalized.toLowerCase();
-  if (lower.includes("timed out")) return "连接超时";
+  if (lower.includes("timed out") || lower.includes("timeout")) return "连接超时";
+  if (lower.includes("signal is aborted without reason") || lower.includes("aborterror")) {
+    return "连接被取消（服务尚未就绪或请求超时）";
+  }
   if (lower.includes("connection refused") || lower.includes("actively refused")) return "连接被拒绝";
   if (lower.includes("empty response")) {
     return "服务返回空响应（可能启动未完成、已异常退出或端口被占用）";

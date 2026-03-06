@@ -139,11 +139,15 @@ export async function refreshRequestLogs(query, options = {}) {
 
   if (!requestLogInFlight || requestLogInFlight.key !== requestKey) {
     const controller = new AbortController();
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(0, options.timeoutMs) : 15000;
     requestLogInFlight = {
       key: requestKey,
       controller,
       promise: (async () => ensureRpcSuccess(
-        await api.serviceRequestLogList(normalizedQuery, 300, { signal: controller.signal }),
+        await api.serviceRequestLogList(normalizedQuery, 300, {
+          signal: controller.signal,
+          timeoutMs,
+        }),
         "读取请求日志失败",
       ))(),
     };

@@ -77,3 +77,34 @@ test("switchPage short-circuits same page and only activates on real page change
   assert.equal(dom.pageTitle.textContent, "账号管理");
   assert.ok(countToggleCalls(toggleNodes) > 0);
 });
+
+test("switchPage to requestlogs triggers page activation", () => {
+  const state = { currentPage: "dashboard", requestLogStatusFilter: "all" };
+  const dom = {
+    navDashboard: createToggleNode(),
+    navAccounts: createToggleNode(),
+    navApiKeys: createToggleNode(),
+    navRequestLogs: createToggleNode(),
+    pageDashboard: createToggleNode(),
+    pageAccounts: createToggleNode(),
+    pageApiKeys: createToggleNode(),
+    pageRequestLogs: createToggleNode(),
+    pageTitle: { textContent: "" },
+  };
+  const activatedPages = [];
+
+  const { switchPage } = createNavigationHandlers({
+    state,
+    dom,
+    closeThemePanel: () => {},
+    onPageActivated: (page) => {
+      activatedPages.push(page);
+    },
+  });
+
+  switchPage("requestlogs");
+
+  assert.equal(state.currentPage, "requestlogs");
+  assert.deepEqual(activatedPages, ["requestlogs"]);
+  assert.equal(dom.pageTitle.textContent, "请求日志");
+});
