@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{OriginalUri, State};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::Router;
 use tokio::sync::{watch, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
@@ -270,6 +270,48 @@ async fn rpc_proxy(
     out
 }
 
+async fn gateway_proxy(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let path_and_query = uri.path_and_query().map(|v| v.as_str()).unwrap_or(uri.path());
+    let upstream_url = format!("http://{}{}", state.service_addr, path_and_query);
+    let mut req = state.client.request(method, upstream_url);
+    for (name, value) in &headers {
+        if name.as_str().eq_ignore_ascii_case("host") {
+            continue;
+        }
+        req = req.header(name, value);
+    }
+    let resp = req.body(body).send().await;
+    let resp = match resp {
+        Ok(v) => v,
+        Err(err) => {
+            let msg = format!("upstream error: {err}");
+            return (StatusCode::BAD_GATEWAY, msg).into_response();
+        }
+    };
+
+    let status = resp.status();
+    let resp_headers = resp.headers().clone();
+    let bytes = match resp.bytes().await {
+        Ok(v) => v,
+        Err(err) => {
+            let msg = format!("upstream read error: {err}");
+            return (StatusCode::BAD_GATEWAY, msg).into_response();
+        }
+    };
+    let mut out = Response::new(axum::body::Body::from(bytes));
+    *out.status_mut() = status;
+    for (name, value) in &resp_headers {
+        out.headers_mut().insert(name, value.clone());
+    }
+    out
+}
+
 async fn quit(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     if *state.spawned_service.lock().await {
         let addr = state.service_addr.clone();
@@ -404,6 +446,7 @@ async fn main() {
 
     let mut app = Router::new()
         .route("/api/rpc", post(rpc_proxy))
+        .route("/v1/{*path}", any(gateway_proxy))
         .route("/__quit", get(quit));
 
     // 静态资源：优先磁盘（显式 root 或同目录 web/ 存在），否则使用内嵌资源（embedded-ui）。
