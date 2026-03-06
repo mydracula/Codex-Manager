@@ -133,12 +133,16 @@ pub struct ApiKeyModelListResult {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogSummary {
+    pub trace_id: Option<String>,
     pub key_id: Option<String>,
     pub account_id: Option<String>,
     pub request_path: String,
+    pub original_path: Option<String>,
+    pub adapted_path: Option<String>,
     pub method: String,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub response_adapter: Option<String>,
     pub upstream_url: Option<String>,
     pub status_code: Option<i64>,
     pub input_tokens: Option<i64>,

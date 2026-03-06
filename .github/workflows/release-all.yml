@@ -17,6 +17,15 @@ on:
         required: false
         default: true
         type: boolean
+      prerelease:
+        description: "Release channel override (auto/true/false)"
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - true
+          - false
 
 permissions:
   contents: write
@@ -81,6 +90,22 @@ jobs:
       - name: Frontend build
         working-directory: apps
         run: pnpm run build
+
+      - name: Pack frontend dist artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/dist/index.html || { echo "apps/dist/index.html not found"; exit 1; }
+          rm -f frontend-dist.tar.gz
+          tar -czf frontend-dist.tar.gz -C apps dist
+
+      - name: Upload frontend dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codexmanager-frontend-dist
+          path: frontend-dist.tar.gz
+          if-no-files-found: error
+          compression-level: 0
 
   build_windows:
     needs: verify
@@ -149,9 +174,33 @@ jobs:
             . -> target
             apps/src-tauri -> target
 
-      - name: Install frontend dependencies
-        working-directory: apps
-        run: pnpm install --frozen-lockfile
+      - name: Download prebuilt frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: codexmanager-frontend-dist
+          path: .
+
+      - name: Restore prebuilt frontend dist
+        shell: pwsh
+        run: |
+          if (Test-Path "apps/dist") {
+            Remove-Item -Recurse -Force "apps/dist"
+          }
+          tar -xzf frontend-dist.tar.gz -C apps
+          if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
+            throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
+          }
+
+      - name: Disable redundant frontend rebuild for Tauri bundle
+        shell: pwsh
+        run: |
+          $configPath = "apps/src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if (-not $config.build) {
+            throw "tauri.conf.json missing build section"
+          }
+          $config.build.PSObject.Properties.Remove("beforeBuildCommand")
+          $config | ConvertTo-Json -Depth 100 | Set-Content $configPath
 
       - name: Build Tauri bundle (with retry)
         working-directory: apps
@@ -193,6 +242,13 @@ jobs:
           $portableBinary = Join-Path $portableDir "CodexManager-portable.exe"
           Copy-Item -Force $source $portableBinary
           Write-Host "portable binary: $portableBinary"
+
+          $legacyZip = Join-Path $portableDir "CodexManager-windows-portable.zip"
+          if (Test-Path $legacyZip) {
+            Remove-Item -Force $legacyZip
+          }
+          Compress-Archive -Path $portableBinary -DestinationPath $legacyZip
+          Write-Host "legacy portable zip: $legacyZip"
 
       - name: Build service binaries
         shell: pwsh
@@ -241,8 +297,8 @@ jobs:
           name: codexmanager-windows
           path: |
             apps/src-tauri/target/release/bundle/**/*.exe
-            apps/src-tauri/target/release/bundle/**/*.msi
             apps/src-tauri/target/release/portable/*.exe
+            apps/src-tauri/target/release/portable/*.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -255,8 +311,8 @@ jobs:
           compression-level: 0
 
   build_macos_beta:
-    needs: [verify, build_windows]
-    if: ${{ always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') && needs.build_windows.result == 'success' }}
+    needs: verify
+    if: ${{ always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -331,13 +387,59 @@ jobs:
             . -> target
             apps/src-tauri -> target
 
-      - name: Install frontend dependencies
-        working-directory: apps
-        run: pnpm install --frozen-lockfile
+      - name: Download prebuilt frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: codexmanager-frontend-dist
+          path: .
+
+      - name: Restore prebuilt frontend dist
+        shell: pwsh
+        run: |
+          if (Test-Path "apps/dist") {
+            Remove-Item -Recurse -Force "apps/dist"
+          }
+          tar -xzf frontend-dist.tar.gz -C apps
+          if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
+            throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
+          }
+
+      - name: Disable redundant frontend rebuild for Tauri bundle
+        shell: pwsh
+        run: |
+          $configPath = "apps/src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if (-not $config.build) {
+            throw "tauri.conf.json missing build section"
+          }
+          $config.build.PSObject.Properties.Remove("beforeBuildCommand")
+          $config | ConvertTo-Json -Depth 100 | Set-Content $configPath
 
       - name: Build macOS app bundle (dmg)
         working-directory: apps
         run: pnpm dlx @tauri-apps/cli@${{ env.TAURI_CLI_VERSION }} build --bundles dmg --target ${{ matrix.rust_target }}
+
+      - name: Stage legacy macOS portable package
+        if: ${{ matrix.arch == 'arm64' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_dir="apps/src-tauri/target/${{ matrix.rust_target }}/release"
+          bundle_root="${release_dir}/bundle"
+          test -d "$bundle_root" || { echo "macOS bundle root not found: $bundle_root"; exit 1; }
+
+          bundle_dir="$(find "$bundle_root" -type d -name 'CodexManager.app' | head -n 1)"
+          test -n "$bundle_dir" || { echo "macOS app bundle not found under: $bundle_root"; exit 1; }
+
+          portable_dir="${release_dir}/portable"
+          mkdir -p "$portable_dir"
+
+          zip_path="${portable_dir}/CodexManager-macos-portable.zip"
+          rm -f "$zip_path"
+          ditto -c -k --sequesterRsrc --keepParent "$bundle_dir" "$zip_path"
+          echo "legacy portable zip: $zip_path"
+          echo "source app bundle: $bundle_dir"
 
       - name: Build service binaries
         run: |
@@ -381,6 +483,7 @@ jobs:
           name: codexmanager-macos-${{ matrix.arch }}
           path: |
             apps/src-tauri/target/${{ matrix.rust_target }}/release/bundle/dmg/*.dmg
+            apps/src-tauri/target/${{ matrix.rust_target }}/release/portable/*.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -393,8 +496,8 @@ jobs:
           compression-level: 0
 
   build_linux:
-    needs: [verify, build_macos_beta]
-    if: ${{ always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') && needs.build_macos_beta.result == 'success' }}
+    needs: verify
+    if: ${{ always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ubuntu-22.04
 
     steps:
@@ -448,19 +551,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/pnpm-lock.yaml
 
-      - name: Resolve pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-pnpm-store-node20-v1-${{ hashFiles('apps/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-node20-v1-
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -487,9 +577,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev zip
 
-      - name: Install frontend dependencies
-        working-directory: apps
-        run: pnpm install --frozen-lockfile
+      - name: Download prebuilt frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: codexmanager-frontend-dist
+          path: .
+
+      - name: Restore prebuilt frontend dist
+        shell: pwsh
+        run: |
+          if (Test-Path "apps/dist") {
+            Remove-Item -Recurse -Force "apps/dist"
+          }
+          tar -xzf frontend-dist.tar.gz -C apps
+          if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
+            throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
+          }
+
+      - name: Disable redundant frontend rebuild for Tauri bundle
+        shell: pwsh
+        run: |
+          $configPath = "apps/src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if (-not $config.build) {
+            throw "tauri.conf.json missing build section"
+          }
+          $config.build.PSObject.Properties.Remove("beforeBuildCommand")
+          $config | ConvertTo-Json -Depth 100 | Set-Content $configPath
 
       - name: Build Tauri bundle (with retry)
         working-directory: apps
@@ -585,7 +699,6 @@ jobs:
           path: |
             apps/src-tauri/target/release/bundle/**/*.AppImage
             apps/src-tauri/target/release/bundle/**/*.deb
-            apps/src-tauri/target/release/bundle/**/*.rpm
             apps/src-tauri/target/release/portable/*.zip
           if-no-files-found: error
           compression-level: 0
@@ -623,6 +736,7 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.tag }}"
           REF="${{ github.event.inputs.ref || 'main' }}"
+          PRERELEASE_INPUT="${{ github.event.inputs.prerelease || 'auto' }}"
 
           if [[ -z "$TAG" ]]; then
             echo "release tag is required"
@@ -638,11 +752,23 @@ jobs:
             exit 1
           fi
 
-          if [[ "$TAG" == *-* ]]; then
-            PRERELEASE="true"
-          else
-            PRERELEASE="false"
-          fi
+          # Manual override wins; "auto" falls back to prerelease tags.
+          case "$PRERELEASE_INPUT" in
+            true|false)
+              PRERELEASE="$PRERELEASE_INPUT"
+              ;;
+            auto)
+              if [[ "$TAG" == *-* ]]; then
+                PRERELEASE="true"
+              else
+                PRERELEASE="false"
+              fi
+              ;;
+            *)
+              echo "invalid prerelease input: $PRERELEASE_INPUT"
+              exit 1
+              ;;
+          esac
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
@@ -660,7 +786,7 @@ jobs:
           TITLE="CodexManager $TAG"
 
           mapfile -t FILES < <(find release-assets -type f \( \
-            -name '*.exe' -o -name '*.msi' -o -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+            -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \
           \) | sort)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No release assets found."

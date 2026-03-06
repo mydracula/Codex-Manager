@@ -6,12 +6,21 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 mod updater;
+
+const TRAY_MENU_SHOW_MAIN: &str = "tray_show_main";
+const TRAY_MENU_QUIT_APP: &str = "tray_quit_app";
+static APP_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static TRAY_AVAILABLE: AtomicBool = AtomicBool::new(false);
+static CLOSE_TO_TRAY_ON_CLOSE: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 async fn service_initialize(addr: Option<String>) -> Result<serde_json::Value, String> {
@@ -45,6 +54,47 @@ async fn rpc_call_in_background(
   tauri::async_runtime::spawn_blocking(move || rpc_call(&method_for_task, addr, params))
     .await
     .map_err(|err| format!("{method_name} task failed: {err}"))?
+}
+
+fn collect_json_files_recursively(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), String> {
+  let entries = fs::read_dir(root)
+    .map_err(|err| format!("read dir failed ({}): {err}", root.display()))?;
+  for entry in entries {
+    let entry = entry.map_err(|err| format!("read dir entry failed ({}): {err}", root.display()))?;
+    let path = entry.path();
+    if path.is_dir() {
+      collect_json_files_recursively(&path, output)?;
+      continue;
+    }
+    let is_json = path
+      .extension()
+      .and_then(|value| value.to_str())
+      .map(|value| value.eq_ignore_ascii_case("json"))
+      .unwrap_or(false);
+    if is_json {
+      output.push(path);
+    }
+  }
+  Ok(())
+}
+
+fn read_account_import_contents_from_directory(
+  root: &Path,
+) -> Result<(Vec<PathBuf>, Vec<String>), String> {
+  let mut json_files = Vec::new();
+  collect_json_files_recursively(root, &mut json_files)?;
+  json_files.sort();
+
+  let mut contents = Vec::with_capacity(json_files.len());
+  for path in &json_files {
+    let text = fs::read_to_string(path)
+      .map_err(|err| format!("read json file failed ({}): {err}", path.display()))?;
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+      contents.push(trimmed.to_string());
+    }
+  }
+  Ok((json_files, contents))
 }
 
 #[tauri::command]
@@ -122,6 +172,38 @@ async fn service_account_import(
   }
   let params = serde_json::json!({ "contents": payload_contents });
   rpc_call_in_background("account/import", addr, Some(params)).await
+}
+
+#[tauri::command]
+async fn service_account_import_by_directory(
+  _addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let selected_dir = FileDialog::new()
+      .set_title("选择账号导入目录")
+      .pick_folder();
+    let Some(dir_path) = selected_dir else {
+      return Ok(serde_json::json!({
+        "result": {
+          "ok": true,
+          "canceled": true
+        }
+      }));
+    };
+
+    let (json_files, contents) = read_account_import_contents_from_directory(&dir_path)?;
+    Ok(serde_json::json!({
+      "result": {
+        "ok": true,
+        "canceled": false,
+        "directoryPath": dir_path.to_string_lossy().to_string(),
+        "fileCount": json_files.len(),
+        "contents": contents
+      }
+    }))
+  })
+  .await
+  .map_err(|err| format!("service_account_import_by_directory task failed: {err}"))?
 }
 
 #[tauri::command]
@@ -459,6 +541,21 @@ async fn open_in_browser(url: String) -> Result<(), String> {
   .map_err(|err| format!("open_in_browser task failed: {err}"))?
 }
 
+#[tauri::command]
+fn app_close_to_tray_on_close_get() -> bool {
+  CLOSE_TO_TRAY_ON_CLOSE.load(Ordering::Relaxed) && TRAY_AVAILABLE.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+fn app_close_to_tray_on_close_set(enabled: bool) -> bool {
+  if enabled && !TRAY_AVAILABLE.load(Ordering::Relaxed) {
+    CLOSE_TO_TRAY_ON_CLOSE.store(false, Ordering::Relaxed);
+    return false;
+  }
+  CLOSE_TO_TRAY_ON_CLOSE.store(enabled, Ordering::Relaxed);
+  enabled
+}
+
 fn open_in_browser_blocking(url: &str) -> Result<(), String> {
   if cfg!(target_os = "windows") {
     let status = std::process::Command::new("rundll32.exe")
@@ -477,7 +574,7 @@ fn open_in_browser_blocking(url: &str) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  let app = tauri::Builder::default()
     .setup(|app| {
       load_env_from_exe_dir();
       apply_runtime_storage_env(app.handle());
@@ -492,12 +589,34 @@ pub fn run() {
       if let Ok(log_dir) = app.path().app_log_dir() {
         log::info!("log dir: {}", log_dir.display());
       }
+      // 中文注释：系统托盘只是增强能力，初始化失败时不能阻塞主窗口启动。
+      if let Err(err) = setup_tray(app.handle()) {
+        TRAY_AVAILABLE.store(false, Ordering::Relaxed);
+        CLOSE_TO_TRAY_ON_CLOSE.store(false, Ordering::Relaxed);
+        log::warn!("tray setup unavailable, continue without tray: {}", err);
+      }
 
       Ok(())
     })
-    .on_window_event(|_window, event| {
-      if let tauri::WindowEvent::CloseRequested { .. } = event {
-        stop_service();
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        if APP_EXIT_REQUESTED.load(Ordering::Relaxed) {
+          return;
+        }
+        if !CLOSE_TO_TRAY_ON_CLOSE.load(Ordering::Relaxed) {
+          return;
+        }
+        if !TRAY_AVAILABLE.load(Ordering::Relaxed) {
+          CLOSE_TO_TRAY_ON_CLOSE.store(false, Ordering::Relaxed);
+          return;
+        }
+        api.prevent_close();
+        if let Err(err) = window.hide() {
+          log::warn!("hide window to tray failed: {}", err);
+        } else {
+          log::info!("window close intercepted; app hidden to tray");
+        }
+        return;
       }
       if let tauri::WindowEvent::Destroyed = event {
         stop_service();
@@ -512,6 +631,7 @@ pub fn run() {
       service_account_delete_unavailable_free,
       service_account_update,
       service_account_import,
+      service_account_import_by_directory,
       service_account_export_by_account_files,
       local_account_delete,
       service_usage_read,
@@ -544,14 +664,77 @@ pub fn run() {
       service_apikey_disable,
       service_apikey_enable,
       open_in_browser,
+      app_close_to_tray_on_close_get,
+      app_close_to_tray_on_close_set,
       updater::app_update_check,
       updater::app_update_prepare,
       updater::app_update_apply_portable,
       updater::app_update_launch_installer,
       updater::app_update_status
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application");
+
+  app.run(|_app_handle, event| match event {
+    tauri::RunEvent::ExitRequested { .. } => {
+      APP_EXIT_REQUESTED.store(true, Ordering::Relaxed);
+      stop_service();
+    }
+    #[cfg(target_os = "macos")]
+    tauri::RunEvent::Reopen { .. } => {
+      show_main_window(_app_handle);
+    }
+    _ => {}
+  });
+}
+
+fn setup_tray(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+  TRAY_AVAILABLE.store(false, Ordering::Relaxed);
+  let show_main = MenuItem::with_id(app, TRAY_MENU_SHOW_MAIN, "显示主窗口", true, None::<&str>)?;
+  let quit = MenuItem::with_id(app, TRAY_MENU_QUIT_APP, "退出", true, None::<&str>)?;
+  let menu = Menu::with_items(app, &[&show_main, &quit])?;
+  let mut tray = TrayIconBuilder::with_id("main-tray")
+    .menu(&menu)
+    .show_menu_on_left_click(false)
+    .on_menu_event(|app, event| match event.id().as_ref() {
+      TRAY_MENU_SHOW_MAIN => {
+        show_main_window(app);
+      }
+      TRAY_MENU_QUIT_APP => {
+        APP_EXIT_REQUESTED.store(true, Ordering::Relaxed);
+        stop_service();
+        app.exit(0);
+      }
+      _ => {}
+    })
+    .on_tray_icon_event(|tray, event| {
+      if let TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        ..
+      } = event
+      {
+        show_main_window(&tray.app_handle());
+      }
+    });
+  if let Some(icon) = app.default_window_icon() {
+    tray = tray.icon(icon.clone());
+  }
+  tray.build(app)?;
+  TRAY_AVAILABLE.store(true, Ordering::Relaxed);
+  Ok(())
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+  let Some(window) = app.get_webview_window("main") else {
+    return;
+  };
+  if let Err(err) = window.show() {
+    log::warn!("show main window failed: {}", err);
+    return;
+  }
+  let _ = window.unminimize();
+  let _ = window.set_focus();
 }
 
 fn load_env_from_exe_dir() {

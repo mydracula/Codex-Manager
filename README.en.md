@@ -13,7 +13,18 @@
 A local desktop + service toolkit for managing a Codex-compatible ChatGPT account pool, usage, and platform keys, with a built-in local gateway.
 
 ## Recent Changes
-### 2026-03-03 (v0.1.4, latest)
+### 2026-03-06 (v0.1.5, latest)
+- Further aligned the gateway protocol adapter with Codex CLI: both `/v1/chat/completions` and `/v1/responses` now converge on Codex `responses` semantics, with upstream streaming/non-streaming behavior closer to the official implementation and better compatibility for OpenAI-style clients such as Cherry Studio.
+- Fixed `tool_calls` / `tools` regressions: preserved tool calls in the chat aggregation path and completed the tool-name shortening + response restoration chain, preventing dropped or mismatched tool calls in OpenAI-compatible JSON, streaming deltas, and adapter conversions.
+- Improved OpenClaw / Anthropic-compatible response adaptation so tool calls, SSE deltas, and non-stream JSON payloads are restored correctly in compatible formats.
+- Added "Import by Folder": the desktop app can now pick a directory, recursively scan `.json` files inside it, and bulk-import accounts.
+- Added direct OpenAI upstream proxy configuration and the header-compaction toggle in Settings; both apply immediately after saving and help reduce some Cloudflare / WAF challenge hits.
+- Reworked the top area of the Settings page into a consistent three-column row layout, aligned the upstream proxy row to the same pattern, and added support for minimizing to the system tray on window close.
+- Expanded request-log tracing with original path, adapted path, and more context so `/v1/chat/completions -> /v1/responses` forwarding and protocol-adapter issues are easier to diagnose.
+- Consolidated release automation into a single one-click multi-platform workflow with the order `Windows -> macOS -> Linux`; asset outputs were also simplified, with portable exe on Windows and DMG-based distribution on macOS.
+- Added and fixed the chat-tools probe script so tool-call hit behavior can be verified locally.
+
+### 2026-03-03 (v0.1.4)
 - Consolidated account action buttons into a single "Account Actions" dropdown to reduce toolbar clutter.
 - Added "Remove unavailable Free accounts": bulk cleanup for accounts matched as unavailable + free plan, with summary counts (scanned/skipped/deleted).
 - Added "Export users": choose a local folder and export one JSON file per account.
@@ -22,6 +33,7 @@ A local desktop + service toolkit for managing a Codex-compatible ChatGPT accoun
 
 ## Features
 - Account pool management: group, tag, sort, note
+- Bulk import / export: supports multi-file import, desktop-only recursive folder import for JSON files, and one-file-per-account export
 - Usage dashboard: supports 5-hour + 7-day dual windows, and accounts that only return a 7-day single window (for example free weekly quota)
 - OAuth login: browser flow + manual callback parsing
 - Platform keys: create, disable, delete, bind model
@@ -62,6 +74,11 @@ A local desktop + service toolkit for managing a Codex-compatible ChatGPT accoun
 2. Add accounts in Account Management and finish OAuth.
 3. If callback fails, paste callback URL into manual parser.
 4. Refresh usage and verify account status.
+
+## Import / Export Accounts
+- `Bulk Import`: choose multiple `.json/.txt` files and import them in one run.
+- `Import by Folder` (desktop only): choose a directory and recursively import all `.json` files under it; empty files are skipped automatically.
+- `Export Users`: choose a folder and export accounts as one JSON file per account for backup or migration.
 
 ## Service Edition (Headless service + Web UI, no desktop runtime)
 1. Download `CodexManager-service-<platform>-<arch>.zip` from the Release page and unzip.
@@ -200,7 +217,7 @@ Parameters (with defaults):
 Use this to bump release version in one command instead of editing multiple files manually.
 
 ```powershell
-pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.4
+pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.5
 ```
 
 It updates:

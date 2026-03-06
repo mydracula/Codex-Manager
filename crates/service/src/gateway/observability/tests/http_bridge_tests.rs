@@ -4,9 +4,38 @@ use super::{
     parse_sse_frame_json, parse_usage_from_json, parse_usage_from_sse_frame,
     should_skip_chat_live_text_event, should_skip_completion_live_text_event,
     synthesize_chat_completion_sse_from_json, synthesize_completions_sse_from_json,
-    OpenAIStreamMeta,
+    OpenAIChatCompletionsSseReader, OpenAICompletionsSseReader, OpenAIStreamMeta,
+    PassthroughSseCollector,
 };
 use serde_json::json;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn open_mock_http_response(content_type: &str, body: &str) -> reqwest::blocking::Response {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock upstream");
+    let addr = listener.local_addr().expect("mock upstream addr");
+    let content_type = content_type.to_string();
+    let body = body.to_string();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept mock client");
+        let mut request_buf = [0_u8; 2048];
+        let _ = stream.read(&mut request_buf);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.as_bytes().len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write mock response");
+        stream.flush().expect("flush mock response");
+    });
+    let response =
+        reqwest::blocking::get(format!("http://{addr}")).expect("request mock upstream");
+    server.join().expect("join mock upstream server");
+    response
+}
 
 #[test]
 fn parse_usage_from_json_reads_cached_and_reasoning_details() {
@@ -531,4 +560,62 @@ fn normalize_chat_chunk_delta_role_keeps_first_and_removes_later() {
     normalize_chat_chunk_delta_role(&mut second, &mut role_emitted);
     assert!(second["choices"][0]["delta"].get("role").is_none());
     assert_eq!(second["choices"][0]["delta"]["content"], "好");
+}
+
+#[test]
+fn openai_chat_sse_reader_requires_terminal_event_before_success() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_chat_incomplete_1\",\"created\":1,\"model\":\"gpt-5.3-codex\"}}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_chat_incomplete_1\",\"delta\":\"hel\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_chat_incomplete_1\",\"delta\":\"lo\"}\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader =
+        OpenAIChatCompletionsSseReader::new(upstream, Arc::clone(&usage_collector), None);
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read mapped chat sse");
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("chat.completion.chunk"));
+    assert!(!mapped.contains("data: [DONE]"));
+    assert!(!collector.saw_terminal);
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("stream disconnected before completion")
+    );
+}
+
+#[test]
+fn openai_completions_sse_reader_requires_terminal_event_before_success() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_completion_incomplete_1\",\"created\":1,\"model\":\"gpt-5.3-codex\"}}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_completion_incomplete_1\",\"delta\":\"Hello\"}\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAICompletionsSseReader::new(upstream, Arc::clone(&usage_collector));
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read mapped completions sse");
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(mapped.contains("\"object\":\"text_completion\""));
+    assert!(!mapped.contains("data: [DONE]"));
+    assert!(!collector.saw_terminal);
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("stream disconnected before completion")
+    );
 }

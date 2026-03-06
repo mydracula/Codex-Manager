@@ -59,6 +59,21 @@ fn openai_chat_completions_stream_uses_sse_adapter() {
 }
 
 #[test]
+fn openai_chat_completions_forward_service_tier_to_responses() {
+    let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}],"service_tier":"flex"}"#.to_vec();
+    let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
+        .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(
+        value
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str),
+        Some("flex")
+    );
+}
+
+#[test]
 fn openai_chat_completions_shortens_tool_names_and_builds_restore_map() {
     let original_tool_name =
         "mcp__tool_server_namespace_for_codex_manager_gateway_adapter_alignment__very_long_tool_operation_name";
@@ -371,6 +386,74 @@ fn openai_chat_response_is_converted_from_output_text_item() {
             .and_then(|message| message.get("content"))
             .and_then(serde_json::Value::as_str),
         Some("plain output item text")
+    );
+}
+
+#[test]
+fn openai_chat_response_is_converted_from_openclaw_tool_call_json() {
+    let upstream = br#"{
+        "id":"resp_openclaw_tool_1",
+        "object":"response",
+        "created_at":1700000011,
+        "status":"incomplete",
+        "model":"openclaw",
+        "output":[{
+            "type":"function_call",
+            "id":"call_item_1",
+            "call_id":"call_weather_1",
+            "name":"get_weather",
+            "arguments":"{\"city\":\"Shanghai\"}"
+        }],
+        "usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value.get("created").and_then(serde_json::Value::as_i64),
+        Some(1700000011)
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(serde_json::Value::as_str),
+        Some("tool_calls")
+    );
+    assert!(value
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .is_some_and(serde_json::Value::is_null));
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("id"))
+            .and_then(serde_json::Value::as_str),
+        Some("call_weather_1")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("function"))
+            .and_then(|function| function.get("name"))
+            .and_then(serde_json::Value::as_str),
+        Some("get_weather")
     );
 }
 
@@ -716,6 +799,33 @@ data: [DONE]
 }
 
 #[test]
+fn openai_chat_stream_event_only_completed_still_outputs_text() {
+    let upstream = br#"event: response.completed
+data: {"response":{"id":"resp_3_evt","created":1700000003,"model":"gpt-5.3-codex","output":[{"type":"message","content":[{"type":"output_text","text":"event completed only text"}]}],"usage":{"input_tokens":8,"output_tokens":3,"total_tokens":11}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(serde_json::Value::as_str),
+        Some("event completed only text")
+    );
+}
+
+#[test]
 fn openai_chat_stream_response_done_only_still_outputs_text() {
     let upstream = br#"data: {"type":"response.done","response":{"id":"resp_3_done","created":1700000003,"model":"gpt-5.3-codex","output":[{"type":"message","content":[{"type":"output_text","text":"done only text"}]}],"usage":{"input_tokens":8,"output_tokens":3,"total_tokens":11}}}
 
@@ -795,6 +905,32 @@ data: [DONE]
             .and_then(|choice| choice.get("text"))
             .and_then(serde_json::Value::as_str),
         Some("completed only completion text")
+    );
+}
+
+#[test]
+fn openai_completions_stream_event_only_done_still_outputs_text() {
+    let upstream = br#"event: response.done
+data: {"response":{"id":"resp_4_done_evt","created":1700000004,"model":"gpt-5.3-codex","output":[{"type":"message","content":[{"type":"output_text","text":"event done only completion text"}]}],"usage":{"input_tokens":9,"output_tokens":4,"total_tokens":13}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAICompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("text"))
+            .and_then(serde_json::Value::as_str),
+        Some("event done only completion text")
     );
 }
 

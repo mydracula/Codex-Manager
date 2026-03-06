@@ -44,7 +44,9 @@ pub(super) fn maybe_respond_local_models(
     trace_id: &str,
     key_id: &str,
     protocol_type: &str,
+    original_path: &str,
     path: &str,
+    response_adapter: super::ResponseAdapter,
     request_method: &str,
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
@@ -76,6 +78,12 @@ pub(super) fn maybe_respond_local_models(
             super::record_gateway_request_outcome(path, 503, Some(protocol_type));
             super::write_request_log(
                 storage,
+                super::request_log::RequestLogTraceContext {
+                    trace_id: Some(trace_id),
+                    original_path: Some(original_path),
+                    adapted_path: Some(path),
+                    response_adapter: Some(response_adapter),
+                },
                 Some(key_id),
                 None,
                 path,
@@ -132,6 +140,12 @@ pub(super) fn maybe_respond_local_models(
     super::record_gateway_request_outcome(path, 200, Some(protocol_type));
     super::write_request_log(
         storage,
+        super::request_log::RequestLogTraceContext {
+            trace_id: Some(trace_id),
+            original_path: Some(original_path),
+            adapted_path: Some(path),
+            response_adapter: Some(response_adapter),
+        },
         Some(key_id),
         None,
         path,

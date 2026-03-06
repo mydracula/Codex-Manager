@@ -13,12 +13,16 @@ pub(crate) fn read_request_logs(
     Ok(logs
         .into_iter()
         .map(|item| RequestLogSummary {
+            trace_id: item.trace_id,
             key_id: item.key_id,
             account_id: item.account_id,
             request_path: item.request_path,
+            original_path: item.original_path,
+            adapted_path: item.adapted_path,
             method: item.method,
             model: item.model,
             reasoning_effort: item.reasoning_effort,
+            response_adapter: item.response_adapter,
             upstream_url: item.upstream_url,
             status_code: item.status_code,
             input_tokens: item.input_tokens,

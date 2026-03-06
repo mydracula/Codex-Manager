@@ -164,6 +164,30 @@ fn current_mode_and_marker() -> Result<(String, bool, PathBuf, PathBuf), String>
   Ok((mode, is_portable, exe, marker))
 }
 
+fn env_flag(name: &str) -> Option<bool> {
+  let raw = std::env::var(name).ok()?;
+  let normalized = raw.trim().to_ascii_lowercase();
+  match normalized.as_str() {
+    "1" | "true" | "yes" | "on" => Some(true),
+    "0" | "false" | "no" | "off" => Some(false),
+    _ => None,
+  }
+}
+
+fn should_include_prerelease_updates_with_override(
+  current_version: &Version,
+  override_value: Option<bool>,
+) -> bool {
+  override_value.unwrap_or_else(|| !current_version.pre.is_empty())
+}
+
+fn should_include_prerelease_updates(current_version: &Version) -> bool {
+  should_include_prerelease_updates_with_override(
+    current_version,
+    env_flag("CODEXMANAGER_UPDATE_PRERELEASE"),
+  )
+}
+
 fn http_client() -> Result<Client, String> {
   Client::builder()
     .timeout(Duration::from_secs(30))
@@ -320,13 +344,53 @@ fn fetch_latest_release_via_html(client: &Client, repo: &str) -> Result<GitHubRe
   })
 }
 
-fn fetch_latest_release(client: &Client, repo: &str) -> Result<GitHubRelease, String> {
+fn select_release_for_channel(
+  releases: Vec<GitHubRelease>,
+  include_prerelease: bool,
+) -> Result<GitHubRelease, String> {
+  let mut selected: Option<(Version, GitHubRelease)> = None;
+
+  for release in releases {
+    if release.draft {
+      continue;
+    }
+    if !include_prerelease && release.prerelease {
+      continue;
+    }
+
+    let version = match normalize_version(&release.tag_name) {
+      Ok(value) => value,
+      Err(_) => continue,
+    };
+
+    match &selected {
+      Some((best_version, _)) if version <= *best_version => {}
+      _ => selected = Some((version, release)),
+    }
+  }
+
+  selected
+    .map(|(_, release)| release)
+    .ok_or_else(|| {
+      if include_prerelease {
+        "未找到可用的稳定版或预发布版本".to_string()
+      } else {
+        "未找到可用的稳定版发布".to_string()
+      }
+    })
+}
+
+fn fetch_latest_release(
+  client: &Client,
+  repo: &str,
+  include_prerelease: bool,
+) -> Result<GitHubRelease, String> {
   if !repo.contains('/') {
     return Err(format!(
       "更新仓库配置无效 '{repo}'，应为 owner/repo 格式"
     ));
   }
-  let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+  let url = format!("https://api.github.com/repos/{repo}/releases?per_page=20");
   let mut req = client
     .get(url)
     .header(reqwest::header::USER_AGENT, USER_AGENT)
@@ -337,10 +401,18 @@ fn fetch_latest_release(client: &Client, repo: &str) -> Result<GitHubRelease, St
 
   let release = match req.send() {
     Ok(resp) => match resp.error_for_status() {
-      Ok(ok_resp) => ok_resp
-        .json::<GitHubRelease>()
-        .map_err(|err| format!("解析最新发布数据失败：{err}"))?,
+      Ok(ok_resp) => {
+        let releases = ok_resp
+          .json::<Vec<GitHubRelease>>()
+          .map_err(|err| format!("解析发布列表失败：{err}"))?;
+        select_release_for_channel(releases, include_prerelease)?
+      }
       Err(api_err) => {
+        if include_prerelease {
+          return Err(format!(
+            "发布列表 API 请求失败（{api_err}）；预发布通道不支持 HTML 回退，请重试或配置 CODEXMANAGER_GITHUB_TOKEN"
+          ));
+        }
         fetch_latest_release_via_html(client, repo).map_err(|fallback_err| {
           format!(
             "最新发布 API 请求失败（{api_err}）；回退解析发布页面也失败（{fallback_err}）"
@@ -349,6 +421,11 @@ fn fetch_latest_release(client: &Client, repo: &str) -> Result<GitHubRelease, St
       }
     },
     Err(api_transport_err) => {
+      if include_prerelease {
+        return Err(format!(
+          "发布列表请求失败（{api_transport_err}）；预发布通道不支持 HTML 回退，请重试或配置 CODEXMANAGER_GITHUB_TOKEN"
+        ));
+      }
       fetch_latest_release_via_html(client, repo).map_err(|fallback_err| {
         format!(
           "最新发布请求失败（{api_transport_err}）；回退解析发布页面也失败（{fallback_err}）"
@@ -357,9 +434,6 @@ fn fetch_latest_release(client: &Client, repo: &str) -> Result<GitHubRelease, St
     }
   };
 
-  if release.draft || release.prerelease {
-    return Err("最新发布必须是稳定版（非草稿/非预发布）".to_string());
-  }
   Ok(release)
 }
 
@@ -367,6 +441,7 @@ fn portable_asset_names_for_platform(latest_version: &str) -> Vec<String> {
   let v = latest_version.trim().trim_start_matches(['v', 'V']);
   if cfg!(target_os = "windows") {
     vec![
+      "CodexManager-portable.exe".to_string(),
       format!("CodexManager-{v}-windows-portable.zip"),
       "CodexManager-windows-portable.zip".to_string(),
     ]
@@ -443,9 +518,10 @@ fn resolve_update_context() -> Result<ResolvedUpdateContext, String> {
   let (mode, is_portable, _, _) = current_mode_and_marker()?;
   let current_version = env!("CARGO_PKG_VERSION").to_string();
   let current_semver = normalize_version(&current_version)?;
+  let include_prerelease = should_include_prerelease_updates(&current_semver);
 
   let client = http_client()?;
-  let release = fetch_latest_release(&client, &repo)?;
+  let release = fetch_latest_release(&client, &repo, include_prerelease)?;
   let latest_semver = normalize_version(&release.tag_name)?;
   let has_update = latest_semver > current_semver;
 
@@ -636,6 +712,32 @@ fn extract_zip_archive(zip_path: &Path, target_dir: &Path) -> Result<(), String>
   Ok(())
 }
 
+fn stage_portable_payload(payload_path: &Path, payload_name: &str, staging_dir: &Path) -> Result<(), String> {
+  let extension = payload_path
+    .extension()
+    .and_then(|value| value.to_str())
+    .unwrap_or("")
+    .to_ascii_lowercase();
+
+  if extension == "zip" {
+    return extract_zip_archive(payload_path, staging_dir);
+  }
+
+  let file_name = Path::new(payload_name)
+    .file_name()
+    .and_then(|value| value.to_str())
+    .ok_or_else(|| format!("无法解析便携更新文件名：{payload_name}"))?;
+  let target_path = staging_dir.join(file_name);
+  fs::copy(payload_path, &target_path).map_err(|err| format!("复制便携更新文件失败：{err}"))?;
+
+  #[cfg(unix)]
+  {
+    let _ = fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755));
+  }
+
+  Ok(())
+}
+
 fn prepare_update_impl(app: &tauri::AppHandle) -> Result<UpdatePrepareResponse, String> {
   let context = resolve_update_context()?;
   set_last_check(context.check.clone());
@@ -680,7 +782,7 @@ fn prepare_update_impl(app: &tauri::AppHandle) -> Result<UpdatePrepareResponse, 
       fs::remove_dir_all(&staging_dir).map_err(|err| format!("清理暂存目录失败：{err}"))?;
     }
     fs::create_dir_all(&staging_dir).map_err(|err| format!("创建暂存目录失败：{err}"))?;
-    extract_zip_archive(&payload_path, &staging_dir)?;
+    stage_portable_payload(&payload_path, &payload_asset.name, &staging_dir)?;
     let current_exe_name = current_exe_path()?
       .file_name()
       .and_then(|name| name.to_str())
@@ -1026,3 +1128,62 @@ pub fn app_update_status(app: tauri::AppHandle) -> Result<UpdateStatusResponse, 
   })
 }
 
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn prerelease_channel_defaults_follow_current_version() {
+    let stable = Version::parse("0.1.5").expect("stable version");
+    let beta = Version::parse("0.1.6-beta.1").expect("beta version");
+
+    assert!(!should_include_prerelease_updates_with_override(&stable, None));
+    assert!(should_include_prerelease_updates_with_override(&beta, None));
+    assert!(should_include_prerelease_updates_with_override(&stable, Some(true)));
+    assert!(!should_include_prerelease_updates_with_override(&beta, Some(false)));
+  }
+
+  #[test]
+  fn portable_asset_names_include_current_workflow_artifact() {
+    let names = portable_asset_names_for_platform("0.1.5");
+    if cfg!(target_os = "windows") {
+      assert!(names.iter().any(|name| name == "CodexManager-portable.exe"));
+    } else if cfg!(target_os = "linux") {
+      assert!(names
+        .iter()
+        .any(|name| name == "CodexManager-linux-portable.zip"));
+    } else if cfg!(target_os = "macos") {
+      assert!(names
+        .iter()
+        .any(|name| name == "CodexManager-macos-portable.zip"));
+    }
+  }
+
+  #[test]
+  fn release_selection_respects_channel() {
+    let releases = vec![
+      GitHubRelease {
+        tag_name: "v0.1.6-beta.1".to_string(),
+        name: None,
+        published_at: None,
+        draft: false,
+        prerelease: true,
+        assets: vec![],
+      },
+      GitHubRelease {
+        tag_name: "v0.1.5".to_string(),
+        name: None,
+        published_at: None,
+        draft: false,
+        prerelease: false,
+        assets: vec![],
+      },
+    ];
+
+    let stable = select_release_for_channel(releases.clone(), false).expect("stable release");
+    let prerelease = select_release_for_channel(releases, true).expect("prerelease release");
+
+    assert_eq!(stable.tag_name, "v0.1.5");
+    assert_eq!(prerelease.tag_name, "v0.1.6-beta.1");
+  }
+}

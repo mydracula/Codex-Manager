@@ -440,6 +440,11 @@ pub(super) fn convert_openai_chat_completions_request(
             "reasoning.encrypted_content".to_string(),
         )]),
     );
+    if let Some(service_tier) = obj.get("service_tier") {
+        // 中文注释：最新 Codex `/responses` 会携带 service_tier；
+        // chat.completions 适配到 responses 时透传，避免静默降级到默认层级。
+        out.insert("service_tier".to_string(), service_tier.clone());
+    }
 
     if let Some(tools) = map_openai_chat_tools_to_responses(obj, &tool_name_map) {
         if !tools.is_empty() {

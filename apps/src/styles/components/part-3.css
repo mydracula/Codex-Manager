@@ -76,6 +76,11 @@
   min-width: 0;
 }
 
+.request-path-stack {
+  gap: 4px;
+  min-width: 0;
+}
+
 .request-path {
   flex: 1 1 auto;
   min-width: 0;
@@ -98,6 +103,25 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+
+.route-meta,
+.account-trace {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.route-meta {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-trace {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .data-table tbody td:first-child {

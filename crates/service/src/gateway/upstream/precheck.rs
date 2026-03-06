@@ -15,7 +15,9 @@ pub(super) fn prepare_candidates_for_proxy(
     storage: &Storage,
     trace_id: &str,
     key_id: &str,
+    original_path: &str,
     path: &str,
+    response_adapter: super::super::ResponseAdapter,
     request_method: &str,
     model_for_log: Option<&str>,
     reasoning_for_log: Option<&str>,
@@ -26,6 +28,12 @@ pub(super) fn prepare_candidates_for_proxy(
             let err_text = format!("candidate resolve failed: {err}");
             super::super::write_request_log(
                 storage,
+                super::super::request_log::RequestLogTraceContext {
+                    trace_id: Some(trace_id),
+                    original_path: Some(original_path),
+                    adapted_path: Some(path),
+                    response_adapter: Some(response_adapter),
+                },
                 Some(key_id),
                 None,
                 path,
@@ -54,6 +62,12 @@ pub(super) fn prepare_candidates_for_proxy(
     if candidates.is_empty() {
         super::super::write_request_log(
             storage,
+            super::super::request_log::RequestLogTraceContext {
+                trace_id: Some(trace_id),
+                original_path: Some(original_path),
+                adapted_path: Some(path),
+                response_adapter: Some(response_adapter),
+            },
             Some(key_id),
             None,
             path,

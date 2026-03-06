@@ -74,12 +74,16 @@ pub struct Event {
 
 #[derive(Debug, Clone)]
 pub struct RequestLog {
+    pub trace_id: Option<String>,
     pub key_id: Option<String>,
     pub account_id: Option<String>,
     pub request_path: String,
+    pub original_path: Option<String>,
+    pub adapted_path: Option<String>,
     pub method: String,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub response_adapter: Option<String>,
     pub upstream_url: Option<String>,
     pub status_code: Option<i64>,
     pub input_tokens: Option<i64>,
@@ -284,6 +288,11 @@ impl Storage {
         self.apply_sql_migration(
             "026_api_key_profiles_constraints_azure",
             include_str!("../../migrations/026_api_key_profiles_constraints_azure.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "027_request_logs_trace_context",
+            include_str!("../../migrations/027_request_logs_trace_context.sql"),
+            |s| s.ensure_request_log_trace_context_columns(),
         )?;
         self.ensure_request_token_stats_table()?;
         Ok(())

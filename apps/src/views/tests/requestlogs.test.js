@@ -277,6 +277,18 @@ function findPathCopyButton(node) {
   return null;
 }
 
+function findNodeByClass(node, className) {
+  if (!node) return null;
+  if (node.classList?.contains(className)) {
+    return node;
+  }
+  for (const child of node.children) {
+    const found = findNodeByClass(child, className);
+    if (found) return found;
+  }
+  return null;
+}
+
 test("renderRequestLogs keeps status filter behavior", () => {
   const previousDocument = globalThis.document;
   const previousRowsEl = dom.requestLogRows;
@@ -493,6 +505,70 @@ test("request log copy uses delegated tbody click handler", async () => {
     await rows.dispatch("click", { target: copyButton });
     assert.equal(copied, "/v1/request/1");
     assert.equal(copyButton.textContent, "已复制");
+  } finally {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      writable: true,
+      value: previousNavigator,
+    });
+    globalThis.document = previousDocument;
+    dom.requestLogRows = previousRowsEl;
+    state.requestLogList = previousList;
+    state.requestLogStatusFilter = previousFilter;
+  }
+});
+
+test("renderRequestLogs shows trace and route metadata, and copy prefers original path", async () => {
+  const previousDocument = globalThis.document;
+  const previousRowsEl = dom.requestLogRows;
+  const previousList = state.requestLogList;
+  const previousFilter = state.requestLogStatusFilter;
+  const previousNavigator = globalThis.navigator;
+  let copied = "";
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    writable: true,
+    value: {
+      clipboard: {
+        writeText: async (value) => {
+          copied = value;
+        },
+      },
+    },
+  });
+  globalThis.document = new FakeDocument();
+  const { rows } = createRequestLogLayout();
+  dom.requestLogRows = rows;
+  state.requestLogStatusFilter = "all";
+  state.requestLogList = [
+    {
+      ...makeLog(21, 502),
+      traceId: "trc_21",
+      originalPath: "/v1/chat/completions",
+      adaptedPath: "/v1/responses",
+      responseAdapter: "OpenAIChatCompletionsJson",
+      upstreamUrl: "https://api.openai.com/v1",
+    },
+  ];
+
+  try {
+    renderRequestLogs();
+    const renderedRow = getDataRows(rows)[0];
+    const accountTrace = findNodeByClass(renderedRow.children[1], "account-trace");
+    const routeMeta = findNodeByClass(renderedRow.children[4], "route-meta");
+    const pathText = findNodeByClass(renderedRow.children[4], "request-path");
+    const copyButton = findPathCopyButton(renderedRow);
+
+    assert.ok(accountTrace);
+    assert.equal(accountTrace.textContent, "trace trc_21");
+    assert.ok(routeMeta);
+    assert.match(routeMeta.textContent, /转发 \/v1\/responses/);
+    assert.match(routeMeta.textContent, /适配 OpenAIChatCompletionsJson/);
+    assert.match(routeMeta.textContent, /上游 https:\/\/api\.openai\.com\/v1/);
+    assert.equal(pathText.textContent, "/v1/chat/completions");
+
+    await rows.dispatch("click", { target: copyButton });
+    assert.equal(copied, "/v1/chat/completions");
   } finally {
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,

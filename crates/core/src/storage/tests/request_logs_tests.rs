@@ -54,12 +54,16 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
 
     let created_at = 123456_i64;
     let log = RequestLog {
+        trace_id: Some("trc-1".to_string()),
         key_id: Some("gk_1".to_string()),
         account_id: Some("acc_1".to_string()),
         request_path: "/v1/responses".to_string(),
+        original_path: Some("/v1/chat/completions".to_string()),
+        adapted_path: Some("/v1/responses".to_string()),
         method: "POST".to_string(),
         model: Some("gpt-5".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
         upstream_url: Some("https://example.test".to_string()),
         status_code: Some(200),
         input_tokens: None,
@@ -96,7 +100,14 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         .expect("list request logs");
     assert_eq!(logs.len(), 1);
     let row = &logs[0];
+    assert_eq!(row.trace_id.as_deref(), Some("trc-1"));
     assert_eq!(row.request_path, log.request_path);
+    assert_eq!(row.original_path.as_deref(), Some("/v1/chat/completions"));
+    assert_eq!(row.adapted_path.as_deref(), Some("/v1/responses"));
+    assert_eq!(
+        row.response_adapter.as_deref(),
+        Some("OpenAIChatCompletionsJson")
+    );
     assert_eq!(row.input_tokens, Some(10));
     assert_eq!(row.cached_input_tokens, Some(1));
     assert_eq!(row.output_tokens, Some(2));
@@ -115,12 +126,16 @@ fn token_stat_failure_still_commits_request_log() {
 
     let created_at = 42_i64;
     let log = RequestLog {
+        trace_id: Some("trc-2".to_string()),
         key_id: Some("gk_1".to_string()),
         account_id: Some("acc_1".to_string()),
         request_path: "/v1/responses".to_string(),
+        original_path: Some("/v1/responses".to_string()),
+        adapted_path: Some("/v1/responses".to_string()),
         method: "POST".to_string(),
         model: Some("gpt-5".to_string()),
         reasoning_effort: None,
+        response_adapter: Some("Passthrough".to_string()),
         upstream_url: None,
         status_code: Some(200),
         input_tokens: None,

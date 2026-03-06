@@ -5,6 +5,8 @@ import "./styles/responsive.css";
 import "./styles/performance.css";
 
 import {
+  appCloseToTrayOnCloseGet,
+  appCloseToTrayOnCloseSet,
   serviceGatewayBackgroundTasksGet,
   serviceGatewayBackgroundTasksSet,
   serviceGatewayHeaderPolicyGet,
@@ -88,6 +90,7 @@ const { switchPage, updateRequestLogFilterButtons } = createNavigationHandlers({
 
 const { setStartupMask } = createStartupMaskController({ dom, state });
 const UPDATE_AUTO_CHECK_STORAGE_KEY = "codexmanager.update.auto_check";
+const CLOSE_TO_TRAY_ON_CLOSE_STORAGE_KEY = "codexmanager.app.close_to_tray_on_close";
 const UI_LOW_TRANSPARENCY_STORAGE_KEY = "codexmanager.ui.low_transparency";
 const UI_LOW_TRANSPARENCY_BODY_CLASS = "cm-low-transparency";
 const UI_LOW_TRANSPARENCY_TOGGLE_ID = "lowTransparencyMode";
@@ -176,9 +179,13 @@ function applyBrowserModeUi() {
   if (serviceSetup) {
     serviceSetup.style.display = "none";
   }
-  const updateCard = dom.checkUpdate ? dom.checkUpdate.closest(".settings-card") : null;
+  const updateCard = dom.checkUpdate ? dom.checkUpdate.closest(".settings-top-item, .settings-card") : null;
   if (updateCard) {
     updateCard.style.display = "none";
+  }
+  const closeToTrayCard = dom.closeToTrayOnClose ? dom.closeToTrayOnClose.closest(".settings-top-item, .settings-card") : null;
+  if (closeToTrayCard) {
+    closeToTrayCard.style.display = "none";
   }
 
   return true;
@@ -211,6 +218,82 @@ function initUpdateAutoCheckSetting() {
   if (dom.autoCheckUpdate) {
     dom.autoCheckUpdate.checked = enabled;
   }
+}
+
+function readCloseToTrayOnCloseSetting() {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+  const raw = localStorage.getItem(CLOSE_TO_TRAY_ON_CLOSE_STORAGE_KEY);
+  if (raw == null) {
+    return false;
+  }
+  const normalized = String(raw).trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+function saveCloseToTrayOnCloseSetting(enabled) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  localStorage.setItem(CLOSE_TO_TRAY_ON_CLOSE_STORAGE_KEY, enabled ? "1" : "0");
+}
+
+function setCloseToTrayOnCloseToggle(enabled) {
+  if (dom.closeToTrayOnClose) {
+    dom.closeToTrayOnClose.checked = Boolean(enabled);
+  }
+}
+
+async function applyCloseToTrayOnCloseSetting(enabled, { silent = true } = {}) {
+  const normalized = Boolean(enabled);
+  if (!isTauriRuntime()) {
+    return normalized;
+  }
+  try {
+    const applied = await appCloseToTrayOnCloseSet(normalized);
+    if (!silent) {
+      if (normalized && !applied) {
+        showToast("系统托盘不可用，无法启用关闭时最小化到托盘", "error");
+      } else {
+        showToast(applied ? "已开启：关闭窗口将最小化到托盘" : "已关闭：关闭窗口将直接退出");
+      }
+    }
+    return Boolean(applied);
+  } catch (err) {
+    if (!silent) {
+      showToast(`设置失败：${normalizeErrorMessage(err)}`, "error");
+    }
+    throw err;
+  }
+}
+
+async function initCloseToTrayOnCloseSetting() {
+  const hasLocalSetting = typeof localStorage !== "undefined"
+    && localStorage.getItem(CLOSE_TO_TRAY_ON_CLOSE_STORAGE_KEY) != null;
+  let enabled = readCloseToTrayOnCloseSetting();
+  if (!hasLocalSetting) {
+    saveCloseToTrayOnCloseSetting(enabled);
+  }
+  if (isTauriRuntime()) {
+    try {
+      const serviceValue = await appCloseToTrayOnCloseGet();
+      if (!hasLocalSetting) {
+        enabled = serviceValue === true;
+      }
+    } catch {
+      // ignore and fallback to local value
+    }
+  }
+  setCloseToTrayOnCloseToggle(enabled);
+  let applied = enabled;
+  try {
+    applied = await applyCloseToTrayOnCloseSetting(enabled, { silent: true });
+  } catch {
+    applied = enabled;
+  }
+  saveCloseToTrayOnCloseSetting(applied);
+  setCloseToTrayOnCloseToggle(applied);
 }
 
 function readLowTransparencySetting() {
@@ -1707,6 +1790,7 @@ const {
   setManualPreferredAccount,
   deleteAccount,
   importAccountsFromFiles,
+  importAccountsFromDirectory,
   deleteUnavailableFreeAccounts,
   exportAccountsByFile,
   handleOpenUsageModal,
@@ -1816,6 +1900,7 @@ function bindEvents() {
     refreshApiModelsNow,
     populateApiKeyModelSelect,
     importAccountsFromFiles,
+    importAccountsFromDirectory,
     deleteUnavailableFreeAccounts,
     exportAccountsByFile,
     toggleThemePanel,
@@ -1837,6 +1922,20 @@ function bindEvents() {
     dom.checkUpdate.dataset.bound = "1";
     dom.checkUpdate.addEventListener("click", () => {
       void handleCheckUpdateClick();
+    });
+  }
+  if (dom.closeToTrayOnClose && dom.closeToTrayOnClose.dataset.bound !== "1") {
+    dom.closeToTrayOnClose.dataset.bound = "1";
+    dom.closeToTrayOnClose.addEventListener("change", () => {
+      const previousEnabled = readCloseToTrayOnCloseSetting();
+      const enabled = Boolean(dom.closeToTrayOnClose.checked);
+      void applyCloseToTrayOnCloseSetting(enabled, { silent: false }).then((applied) => {
+        saveCloseToTrayOnCloseSetting(applied);
+        setCloseToTrayOnCloseToggle(applied);
+      }).catch(() => {
+        saveCloseToTrayOnCloseSetting(previousEnabled);
+        setCloseToTrayOnCloseToggle(previousEnabled);
+      });
     });
   }
   if (dom.routeStrategySelect && dom.routeStrategySelect.dataset.bound !== "1") {
@@ -1904,6 +2003,7 @@ function bootstrap() {
   restoreTheme();
   initLowTransparencySetting();
   initUpdateAutoCheckSetting();
+  void initCloseToTrayOnCloseSetting();
   initRouteStrategySetting();
   initCpaNoCookieHeaderModeSetting();
   initUpstreamProxySetting();

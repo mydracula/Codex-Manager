@@ -50,6 +50,7 @@ pub(in super::super) fn proxy_azure_request(
     storage: &Storage,
     trace_id: &str,
     key_id: &str,
+    original_path: &str,
     path: &str,
     request_method: &str,
     method: &reqwest::Method,
@@ -80,6 +81,12 @@ pub(in super::super) fn proxy_azure_request(
         );
         super::super::super::write_request_log(
             storage,
+            super::super::super::request_log::RequestLogTraceContext {
+                trace_id: Some(trace_id),
+                original_path: Some(original_path),
+                adapted_path: Some(path),
+                response_adapter: Some(response_adapter),
+            },
             Some(key_id),
             None,
             path,
@@ -113,6 +120,12 @@ pub(in super::super) fn proxy_azure_request(
             );
             super::super::super::write_request_log(
                 storage,
+                super::super::super::request_log::RequestLogTraceContext {
+                    trace_id: Some(trace_id),
+                    original_path: Some(original_path),
+                    adapted_path: Some(path),
+                    response_adapter: Some(response_adapter),
+                },
                 Some(key_id),
                 None,
                 path,
@@ -150,6 +163,12 @@ pub(in super::super) fn proxy_azure_request(
                 );
                 super::super::super::write_request_log(
                     storage,
+                    super::super::super::request_log::RequestLogTraceContext {
+                        trace_id: Some(trace_id),
+                        original_path: Some(original_path),
+                        adapted_path: Some(path),
+                        response_adapter: Some(response_adapter),
+                    },
                     Some(key_id),
                     None,
                     path,
@@ -181,6 +200,12 @@ pub(in super::super) fn proxy_azure_request(
                 );
                 super::super::super::write_request_log(
                     storage,
+                    super::super::super::request_log::RequestLogTraceContext {
+                        trace_id: Some(trace_id),
+                        original_path: Some(original_path),
+                        adapted_path: Some(path),
+                        response_adapter: Some(response_adapter),
+                    },
                     Some(key_id),
                     None,
                     path,
@@ -294,6 +319,12 @@ pub(in super::super) fn proxy_azure_request(
                     );
                     super::super::super::write_request_log(
                         storage,
+                        super::super::super::request_log::RequestLogTraceContext {
+                            trace_id: Some(trace_id),
+                            original_path: Some(original_path),
+                            adapted_path: Some(path),
+                            response_adapter: Some(response_adapter),
+                        },
                         Some(key_id),
                         None,
                         path,
@@ -354,6 +385,12 @@ pub(in super::super) fn proxy_azure_request(
     );
     super::super::super::write_request_log(
         storage,
+        super::super::super::request_log::RequestLogTraceContext {
+            trace_id: Some(trace_id),
+            original_path: Some(original_path),
+            adapted_path: Some(path),
+            response_adapter: Some(response_adapter),
+        },
         Some(key_id),
         None,
         path,

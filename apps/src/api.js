@@ -310,6 +310,13 @@ export async function serviceAccountImport(contents) {
   return invoke("service_account_import", withAddr({ contents }));
 }
 
+export async function serviceAccountImportByDirectory() {
+  if (!isTauriRuntime()) {
+    throw new Error("浏览器模式暂不支持导入文件夹，请使用桌面端");
+  }
+  return invoke("service_account_import_by_directory", withAddr());
+}
+
 export async function serviceAccountExportByAccountFiles() {
   if (!isTauriRuntime()) {
     throw new Error("浏览器模式暂不支持目录导出，请使用桌面端");
@@ -589,6 +596,22 @@ export async function openInBrowser(url) {
     }
   }
   return invoke("open_in_browser", { url });
+}
+
+export async function appCloseToTrayOnCloseGet() {
+  if (!isTauriRuntime()) {
+    return false;
+  }
+  const value = await invoke("app_close_to_tray_on_close_get", {});
+  return value === true;
+}
+
+export async function appCloseToTrayOnCloseSet(enabled) {
+  if (!isTauriRuntime()) {
+    return false;
+  }
+  const value = await invoke("app_close_to_tray_on_close_set", { enabled: Boolean(enabled) });
+  return value === true;
 }
 
 // 应用更新

@@ -96,6 +96,7 @@ pub(super) fn build_local_validation_result(
         trace_id,
         incoming_headers,
         storage,
+        original_path: normalized_path,
         path,
         body: Bytes::from(body),
         is_stream,

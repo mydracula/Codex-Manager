@@ -129,6 +129,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 025 migration");
     assert_eq!(applied_025, 1);
+    let applied_027: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '027_request_logs_trace_context'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 027 migration");
+    assert_eq!(applied_027, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -145,6 +154,18 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("tokens", "next_refresh_at")
         .expect("check tokens.next_refresh_at"));
+    assert!(storage
+        .has_column("request_logs", "trace_id")
+        .expect("check request_logs.trace_id"));
+    assert!(storage
+        .has_column("request_logs", "original_path")
+        .expect("check request_logs.original_path"));
+    assert!(storage
+        .has_column("request_logs", "adapted_path")
+        .expect("check request_logs.adapted_path"));
+    assert!(storage
+        .has_column("request_logs", "response_adapter")
+        .expect("check request_logs.response_adapter"));
 }
 
 #[test]

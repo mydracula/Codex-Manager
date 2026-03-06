@@ -1,6 +1,9 @@
 use reqwest::header::HeaderValue;
 
-use super::{should_try_openai_fallback, should_try_openai_fallback_by_status};
+use super::{
+    reload_from_env, resolve_upstream_fallback_base_url, should_try_openai_fallback,
+    should_try_openai_fallback_by_status,
+};
 
 #[test]
 fn fallback_status_trigger_is_limited_to_responses_path() {
@@ -29,4 +32,24 @@ fn fallback_content_type_trigger_is_limited_to_responses_path() {
         "/v1/chat/completions",
         Some(&html)
     ));
+}
+
+#[test]
+fn fallback_base_defaults_to_openai_for_chatgpt_backend() {
+    std::env::remove_var("CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL");
+    reload_from_env();
+    assert_eq!(
+        resolve_upstream_fallback_base_url("https://chatgpt.com/backend-api/codex").as_deref(),
+        Some("https://api.openai.com/v1")
+    );
+
+    std::env::set_var("CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL", "https://api.openai.com/v1");
+    reload_from_env();
+    assert_eq!(
+        resolve_upstream_fallback_base_url("https://chatgpt.com/backend-api/codex").as_deref(),
+        Some("https://api.openai.com/v1")
+    );
+
+    std::env::remove_var("CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL");
+    reload_from_env();
 }

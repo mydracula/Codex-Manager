@@ -308,12 +308,16 @@ fn request_logs_support_prefixed_query_filters() {
 
     storage
         .insert_request_log(&RequestLog {
+            trace_id: Some("trc-alpha-extra".to_string()),
             key_id: Some("key-alpha-extra".to_string()),
             account_id: Some("acc-1".to_string()),
             request_path: "/v1/responses".to_string(),
+            original_path: Some("/v1/chat/completions".to_string()),
+            adapted_path: Some("/v1/responses".to_string()),
             method: "POST".to_string(),
             model: Some("gpt-5.1".to_string()),
             reasoning_effort: Some("low".to_string()),
+            response_adapter: Some("OpenAIChatCompletionsJson".to_string()),
             upstream_url: Some("https://chatgpt.com/backend-api/codex/v1/responses".to_string()),
             status_code: Some(201),
             input_tokens: Some(11),
@@ -329,12 +333,16 @@ fn request_logs_support_prefixed_query_filters() {
 
     storage
         .insert_request_log(&RequestLog {
+            trace_id: Some("trc-alpha".to_string()),
             key_id: Some("key-alpha".to_string()),
             account_id: Some("acc-1".to_string()),
             request_path: "/v1/responses".to_string(),
+            original_path: Some("/v1/responses".to_string()),
+            adapted_path: Some("/v1/responses".to_string()),
             method: "POST".to_string(),
             model: Some("gpt-5.1".to_string()),
             reasoning_effort: Some("low".to_string()),
+            response_adapter: Some("Passthrough".to_string()),
             upstream_url: Some("https://chatgpt.com/backend-api/codex/v1/responses".to_string()),
             status_code: Some(200),
             input_tokens: Some(9),
@@ -350,12 +358,16 @@ fn request_logs_support_prefixed_query_filters() {
 
     storage
         .insert_request_log(&RequestLog {
+            trace_id: Some("trc-beta".to_string()),
             key_id: Some("key-beta".to_string()),
             account_id: Some("acc-2".to_string()),
             request_path: "/v1/models".to_string(),
+            original_path: Some("/v1/models".to_string()),
+            adapted_path: Some("/v1/models".to_string()),
             method: "GET".to_string(),
             model: Some("gpt-4.1".to_string()),
             reasoning_effort: Some("xhigh".to_string()),
+            response_adapter: None,
             upstream_url: Some("https://api.openai.com/v1/models".to_string()),
             status_code: Some(503),
             input_tokens: None,
@@ -392,6 +404,30 @@ fn request_logs_support_prefixed_query_filters() {
     assert_eq!(key_exact_filtered.len(), 1);
     assert_eq!(key_exact_filtered[0].key_id.as_deref(), Some("key-alpha"));
 
+    let trace_filtered = storage
+        .list_request_logs(Some("trace:=trc-alpha"), 100)
+        .expect("filter by trace id");
+    assert_eq!(trace_filtered.len(), 1);
+    assert_eq!(trace_filtered[0].trace_id.as_deref(), Some("trc-alpha"));
+
+    let original_path_filtered = storage
+        .list_request_logs(Some("original:=/v1/chat/completions"), 100)
+        .expect("filter by original path");
+    assert_eq!(original_path_filtered.len(), 1);
+    assert_eq!(
+        original_path_filtered[0].original_path.as_deref(),
+        Some("/v1/chat/completions")
+    );
+
+    let adapter_filtered = storage
+        .list_request_logs(Some("adapter:=OpenAIChatCompletionsJson"), 100)
+        .expect("filter by response adapter");
+    assert_eq!(adapter_filtered.len(), 1);
+    assert_eq!(
+        adapter_filtered[0].response_adapter.as_deref(),
+        Some("OpenAIChatCompletionsJson")
+    );
+
     let fallback_filtered = storage
         .list_request_logs(Some("timeout"), 100)
         .expect("fallback fuzzy query");
@@ -409,12 +445,16 @@ fn request_log_today_summary_reads_from_token_stats_table() {
     let created_at = now_ts();
     let request_log_id = storage
         .insert_request_log(&RequestLog {
+            trace_id: Some("trc-summary".to_string()),
             key_id: Some("key-summary".to_string()),
             account_id: Some("acc-summary".to_string()),
             request_path: "/v1/responses".to_string(),
+            original_path: Some("/v1/responses".to_string()),
+            adapted_path: Some("/v1/responses".to_string()),
             method: "POST".to_string(),
             model: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
+            response_adapter: Some("Passthrough".to_string()),
             upstream_url: Some("https://chatgpt.com/backend-api/codex/responses".to_string()),
             status_code: Some(200),
             input_tokens: None,
@@ -463,12 +503,16 @@ fn insert_request_log_with_token_stat_writes_both_tables_in_one_call() {
     let (request_log_id, token_stat_error) = storage
         .insert_request_log_with_token_stat(
             &RequestLog {
+                trace_id: Some("trc-atomic".to_string()),
                 key_id: Some("key-atomic".to_string()),
                 account_id: Some("acc-atomic".to_string()),
                 request_path: "/v1/responses".to_string(),
+                original_path: Some("/v1/responses".to_string()),
+                adapted_path: Some("/v1/responses".to_string()),
                 method: "POST".to_string(),
                 model: Some("gpt-5.3-codex".to_string()),
                 reasoning_effort: Some("high".to_string()),
+                response_adapter: Some("Passthrough".to_string()),
                 upstream_url: Some("https://chatgpt.com/backend-api/codex/responses".to_string()),
                 status_code: Some(200),
                 input_tokens: None,
@@ -522,12 +566,16 @@ fn clear_request_logs_keeps_token_stats_for_usage_summary() {
     let created_at = now_ts();
     let request_log_id = storage
         .insert_request_log(&RequestLog {
+            trace_id: Some("trc-clear".to_string()),
             key_id: Some("key-clear".to_string()),
             account_id: Some("acc-clear".to_string()),
             request_path: "/v1/responses".to_string(),
+            original_path: Some("/v1/responses".to_string()),
+            adapted_path: Some("/v1/responses".to_string()),
             method: "POST".to_string(),
             model: Some("gpt-5.3-codex".to_string()),
             reasoning_effort: Some("high".to_string()),
+            response_adapter: Some("Passthrough".to_string()),
             upstream_url: Some("https://chatgpt.com/backend-api/codex/responses".to_string()),
             status_code: Some(200),
             input_tokens: None,

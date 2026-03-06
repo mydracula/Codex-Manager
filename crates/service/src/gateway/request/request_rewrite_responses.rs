@@ -179,7 +179,8 @@ pub(super) fn retain_codex_fields(
     if !is_responses_path(path) {
         return Vec::new();
     }
-    // 中文注释：仅保留 Codex CLI /responses 固定字段集合，其他字段全部丢弃，
-    // 防止不同客户端夹带参数触发 Codex upstream 的 400。
+    // 中文注释：仅保留 Codex CLI /responses 固定字段集合，其他字段全部丢弃。
+    // `service_tier` 在 OpenAI 官方 `/v1/responses` 可以保留，但在 Codex backend 兼容路径
+    // 先恢复到 v0.1.4 的白名单行为，避免小请求稳定触发 upstream challenge。
     retain_fields_with_allowlist(obj, is_supported_codex_responses_key)
 }

@@ -10,6 +10,7 @@ pub(super) struct LocalValidationResult {
     pub(super) trace_id: String,
     pub(super) incoming_headers: super::IncomingHeaderSnapshot,
     pub(super) storage: crate::storage_helpers::StorageHandle,
+    pub(super) original_path: String,
     pub(super) path: String,
     pub(super) body: Bytes,
     pub(super) is_stream: bool,

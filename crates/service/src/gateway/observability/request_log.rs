@@ -9,6 +9,14 @@ pub(super) struct RequestLogUsage {
     pub reasoning_output_tokens: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct RequestLogTraceContext<'a> {
+    pub trace_id: Option<&'a str>,
+    pub original_path: Option<&'a str>,
+    pub adapted_path: Option<&'a str>,
+    pub response_adapter: Option<super::ResponseAdapter>,
+}
+
 const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
     // OpenAI 官方价格（单位：USD / 1K tokens）。按模型前缀匹配，越具体越靠前。
     // gpt-5.3-codex 暂未公开价格，临时按 gpt-5.2-codex 计费。
@@ -68,8 +76,21 @@ fn is_inference_path(path: &str) -> bool {
         || path.starts_with("/v1/messages")
 }
 
+fn response_adapter_label(value: super::ResponseAdapter) -> &'static str {
+    match value {
+        super::ResponseAdapter::Passthrough => "Passthrough",
+        super::ResponseAdapter::AnthropicJson => "AnthropicJson",
+        super::ResponseAdapter::AnthropicSse => "AnthropicSse",
+        super::ResponseAdapter::OpenAIChatCompletionsJson => "OpenAIChatCompletionsJson",
+        super::ResponseAdapter::OpenAIChatCompletionsSse => "OpenAIChatCompletionsSse",
+        super::ResponseAdapter::OpenAICompletionsJson => "OpenAICompletionsJson",
+        super::ResponseAdapter::OpenAICompletionsSse => "OpenAICompletionsSse",
+    }
+}
+
 pub(super) fn write_request_log(
     storage: &Storage,
+    trace_context: RequestLogTraceContext<'_>,
     key_id: Option<&str>,
     account_id: Option<&str>,
     request_path: &str,
@@ -81,6 +102,8 @@ pub(super) fn write_request_log(
     usage: RequestLogUsage,
     error: Option<&str>,
 ) {
+    let original_path = trace_context.original_path.unwrap_or(request_path);
+    let adapted_path = trace_context.adapted_path.unwrap_or(request_path);
     let input_tokens = normalize_token(usage.input_tokens);
     let cached_input_tokens = normalize_token(usage.cached_input_tokens);
     let output_tokens = normalize_token(usage.output_tokens);
@@ -117,12 +140,19 @@ pub(super) fn write_request_log(
     // 记录请求最终结果（而非内部重试明细），保证 UI 一次请求只展示一条记录。
     let (request_log_id, token_stat_error) = match storage.insert_request_log_with_token_stat(
         &RequestLog {
+            trace_id: trace_context.trace_id.map(|v| v.to_string()),
             key_id: key_id.map(|v| v.to_string()),
             account_id: account_id.map(|v| v.to_string()),
             request_path: request_path.to_string(),
+            original_path: Some(original_path.to_string()),
+            adapted_path: Some(adapted_path.to_string()),
             method: method.to_string(),
             model: model.map(|v| v.to_string()),
             reasoning_effort: reasoning_effort.map(|v| v.to_string()),
+            response_adapter: trace_context
+                .response_adapter
+                .map(response_adapter_label)
+                .map(str::to_string),
             upstream_url: upstream_url.map(|v| v.to_string()),
             status_code: status_code.map(|v| i64::from(v)),
             input_tokens: None,

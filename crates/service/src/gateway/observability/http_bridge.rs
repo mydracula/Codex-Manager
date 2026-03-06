@@ -1189,6 +1189,31 @@ fn collect_non_stream_json_from_sse_bytes(
     (body, usage)
 }
 
+fn looks_like_sse_payload(body: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(body) else {
+        return false;
+    };
+    let mut saw_sse_prefix = false;
+    for line in text.lines().take(32) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            if saw_sse_prefix {
+                return true;
+            }
+            continue;
+        }
+        if trimmed.starts_with("data:") || trimmed.starts_with("event:") || trimmed.starts_with(':')
+        {
+            saw_sse_prefix = true;
+            continue;
+        }
+        if !saw_sse_prefix {
+            return false;
+        }
+    }
+    saw_sse_prefix
+}
+
 pub(super) fn respond_with_upstream(
     request: Request,
     upstream: reqwest::blocking::Response,
@@ -1226,12 +1251,51 @@ pub(super) fn respond_with_upstream(
                 .as_deref()
                 .map(|value| value.to_ascii_lowercase().starts_with("text/event-stream"))
                 .unwrap_or(false);
-            // 非 SSE 响应（即使客户端 stream=true）也按普通 body 回传，
-            // 避免把 JSON 错误体按 SSE 解析导致 "stream disconnected before completion" 误报。
-            if !is_sse {
+            if !is_stream {
                 let upstream_body = upstream
                     .bytes()
                     .map_err(|err| format!("read upstream body failed: {err}"))?;
+                let detected_sse =
+                    is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
+                if detected_sse {
+                    let (synthesized_body, mut usage) =
+                        collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
+                    let synthesized_response = synthesized_body.is_some();
+                    let body = synthesized_body.unwrap_or_else(|| upstream_body.to_vec());
+                    if let Ok(value) = serde_json::from_slice::<Value>(&body) {
+                        merge_usage(&mut usage, parse_usage_from_json(&value));
+                    }
+                    let upstream_error_hint = extract_error_hint_from_body(status.0, &body);
+                    if synthesized_response {
+                        headers.retain(|header| {
+                            !header
+                                .field
+                                .as_str()
+                                .as_str()
+                                .eq_ignore_ascii_case("Content-Type")
+                        });
+                        if let Ok(content_type_header) = Header::from_bytes(
+                            b"Content-Type".as_slice(),
+                            b"application/json".as_slice(),
+                        ) {
+                            headers.push(content_type_header);
+                        }
+                    }
+                    let len = Some(body.len());
+                    let response =
+                        Response::new(status, headers, std::io::Cursor::new(body), len, None);
+                    let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                    return Ok(UpstreamResponseBridgeResult {
+                        usage,
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint,
+                    });
+                }
+
+                // 非 SSE 响应（即使客户端 stream=true）也按普通 body 回传，
+                // 避免把 JSON 错误体按 SSE 解析导致 "stream disconnected before completion" 误报。
                 let (_, sse_usage) = collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let usage = if is_json {
                     serde_json::from_slice::<Value>(upstream_body.as_ref())
@@ -1246,75 +1310,8 @@ pub(super) fn respond_with_upstream(
                 let upstream_error_hint =
                     extract_error_hint_from_body(status.0, upstream_body.as_ref());
                 let len = Some(upstream_body.len());
-                let response = Response::new(
-                    status,
-                    headers,
-                    std::io::Cursor::new(upstream_body.to_vec()),
-                    len,
-                    None,
-                );
-                let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                return Ok(UpstreamResponseBridgeResult {
-                    usage,
-                    stream_terminal_seen: true,
-                    stream_terminal_error: None,
-                    delivery_error,
-                    upstream_error_hint,
-                });
-            }
-            if is_json && !is_stream {
-                let upstream_body = upstream
-                    .bytes()
-                    .map_err(|err| format!("read upstream body failed: {err}"))?;
-                let usage = serde_json::from_slice::<Value>(upstream_body.as_ref())
-                    .ok()
-                    .map(|value| parse_usage_from_json(&value))
-                    .unwrap_or_default();
-                let upstream_error_hint =
-                    extract_error_hint_from_body(status.0, upstream_body.as_ref());
-                let len = Some(upstream_body.len());
-                let response = Response::new(
-                    status,
-                    headers,
-                    std::io::Cursor::new(upstream_body.to_vec()),
-                    len,
-                    None,
-                );
-                let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                return Ok(UpstreamResponseBridgeResult {
-                    usage,
-                    stream_terminal_seen: true,
-                    stream_terminal_error: None,
-                    delivery_error,
-                    upstream_error_hint,
-                });
-            }
-            if is_sse && !is_stream {
-                let upstream_body = upstream
-                    .bytes()
-                    .map_err(|err| format!("read upstream body failed: {err}"))?;
-                let (synthesized_body, mut usage) =
-                    collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
-                let body = synthesized_body.unwrap_or_else(|| upstream_body.to_vec());
-                if let Ok(value) = serde_json::from_slice::<Value>(&body) {
-                    merge_usage(&mut usage, parse_usage_from_json(&value));
-                }
-                let upstream_error_hint = extract_error_hint_from_body(status.0, &body);
-                headers.retain(|header| {
-                    !header
-                        .field
-                        .as_str()
-                        .as_str()
-                        .eq_ignore_ascii_case("Content-Type")
-                });
-                if let Ok(content_type_header) =
-                    Header::from_bytes(b"Content-Type".as_slice(), b"application/json".as_slice())
-                {
-                    headers.push(content_type_header);
-                }
-                let len = Some(body.len());
                 let response =
-                    Response::new(status, headers, std::io::Cursor::new(body), len, None);
+                    Response::new(status, headers, std::io::Cursor::new(upstream_body.to_vec()), len, None);
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
                 return Ok(UpstreamResponseBridgeResult {
                     usage,
@@ -2301,13 +2298,11 @@ impl OpenAICompletionsSseReader {
                 }
                 if let Ok(mut collector) = self.usage_collector.lock() {
                     if !collector.saw_terminal {
-                        if self.emitted_text_delta {
-                            collector.saw_terminal = true;
-                        } else {
-                            collector.terminal_error.get_or_insert_with(|| {
-                                "stream disconnected before completion".to_string()
-                            });
-                        }
+                        // 中文注释：对齐最新 Codex SSE 语义：
+                        // 仅凭已收到文本不足以判定成功，必须等到真正 terminal 事件。
+                        collector.terminal_error.get_or_insert_with(|| {
+                            "stream disconnected before completion".to_string()
+                        });
                     }
                 }
                 self.finished = true;
@@ -2499,13 +2494,11 @@ impl OpenAIChatCompletionsSseReader {
                 }
                 if let Ok(mut collector) = self.usage_collector.lock() {
                     if !collector.saw_terminal {
-                        if self.emitted_text_delta {
-                            collector.saw_terminal = true;
-                        } else {
-                            collector.terminal_error.get_or_insert_with(|| {
-                                "stream disconnected before completion".to_string()
-                            });
-                        }
+                        // 中文注释：对齐最新 Codex SSE 语义：
+                        // 只有 response.completed / response.done / [DONE] 才算正常结束。
+                        collector.terminal_error.get_or_insert_with(|| {
+                            "stream disconnected before completion".to_string()
+                        });
                     }
                 }
                 self.finished = true;

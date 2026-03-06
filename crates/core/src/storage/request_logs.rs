@@ -5,15 +5,21 @@ use super::{request_log_query, RequestLog, RequestLogTodaySummary, RequestTokenS
 impl Storage {
     pub fn insert_request_log(&self, log: &RequestLog) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO request_logs (key_id, account_id, request_path, method, model, reasoning_effort, upstream_url, status_code, error, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO request_logs (
+                trace_id, key_id, account_id, request_path, original_path, adapted_path,
+                method, model, reasoning_effort, response_adapter, upstream_url, status_code, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             (
+                &log.trace_id,
                 &log.key_id,
                 &log.account_id,
                 &log.request_path,
+                &log.original_path,
+                &log.adapted_path,
                 &log.method,
                 &log.model,
                 &log.reasoning_effort,
+                &log.response_adapter,
                 &log.upstream_url,
                 log.status_code,
                 &log.error,
@@ -30,15 +36,21 @@ impl Storage {
     ) -> Result<(i64, Option<String>)> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "INSERT INTO request_logs (key_id, account_id, request_path, method, model, reasoning_effort, upstream_url, status_code, error, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO request_logs (
+                trace_id, key_id, account_id, request_path, original_path, adapted_path,
+                method, model, reasoning_effort, response_adapter, upstream_url, status_code, error, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             (
+                &log.trace_id,
                 &log.key_id,
                 &log.account_id,
                 &log.request_path,
+                &log.original_path,
+                &log.adapted_path,
                 &log.method,
                 &log.model,
                 &log.reasoning_effort,
+                &log.response_adapter,
                 &log.upstream_url,
                 log.status_code,
                 &log.error,
@@ -85,7 +97,8 @@ impl Storage {
             request_log_query::RequestLogQuery::All => {
                 let mut stmt = self.conn.prepare(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
@@ -101,7 +114,8 @@ impl Storage {
             request_log_query::RequestLogQuery::FieldLike { column, pattern } => {
                 let sql = format!(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
@@ -119,7 +133,8 @@ impl Storage {
             request_log_query::RequestLogQuery::FieldExact { column, value } => {
                 let sql = format!(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
@@ -137,7 +152,8 @@ impl Storage {
             request_log_query::RequestLogQuery::StatusExact(status) => {
                 let mut stmt = self.conn.prepare(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
@@ -154,7 +170,8 @@ impl Storage {
             request_log_query::RequestLogQuery::StatusRange(start, end) => {
                 let mut stmt = self.conn.prepare(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
@@ -171,18 +188,23 @@ impl Storage {
             request_log_query::RequestLogQuery::GlobalLike(pattern) => {
                 let mut stmt = self.conn.prepare(
                     "SELECT
-                        r.key_id, r.account_id, r.request_path, r.method, r.model, r.reasoning_effort, r.upstream_url, r.status_code,
+                        r.trace_id, r.key_id, r.account_id, r.request_path, r.original_path, r.adapted_path,
+                        r.method, r.model, r.reasoning_effort, r.response_adapter, r.upstream_url, r.status_code,
                         t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
                         r.error, r.created_at
                      FROM request_logs r
                      LEFT JOIN request_token_stats t ON t.request_log_id = r.id
                      WHERE r.request_path LIKE ?1
+                        OR IFNULL(r.original_path,'') LIKE ?1
+                        OR IFNULL(r.adapted_path,'') LIKE ?1
                         OR r.method LIKE ?1
                         OR IFNULL(r.account_id,'') LIKE ?1
                         OR IFNULL(r.model,'') LIKE ?1
                         OR IFNULL(r.reasoning_effort,'') LIKE ?1
+                        OR IFNULL(r.response_adapter,'') LIKE ?1
                         OR IFNULL(r.error,'') LIKE ?1
                         OR IFNULL(r.key_id,'') LIKE ?1
+                        OR IFNULL(r.trace_id,'') LIKE ?1
                         OR IFNULL(r.upstream_url,'') LIKE ?1
                         OR IFNULL(CAST(r.status_code AS TEXT),'') LIKE ?1
                         OR IFNULL(CAST(t.input_tokens AS TEXT),'') LIKE ?1
@@ -222,12 +244,16 @@ impl Storage {
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS request_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id TEXT,
                 key_id TEXT,
                 account_id TEXT,
                 request_path TEXT NOT NULL,
+                original_path TEXT,
+                adapted_path TEXT,
                 method TEXT NOT NULL,
                 model TEXT,
                 reasoning_effort TEXT,
+                response_adapter TEXT,
                 upstream_url TEXT,
                 status_code INTEGER,
                 error TEXT,
@@ -271,26 +297,42 @@ impl Storage {
     pub(super) fn ensure_request_log_cached_reasoning_columns(&self) -> Result<()> {
         Ok(())
     }
+
+    pub(super) fn ensure_request_log_trace_context_columns(&self) -> Result<()> {
+        self.ensure_column("request_logs", "trace_id", "TEXT")?;
+        self.ensure_column("request_logs", "original_path", "TEXT")?;
+        self.ensure_column("request_logs", "adapted_path", "TEXT")?;
+        self.ensure_column("request_logs", "response_adapter", "TEXT")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_trace_id_created_at ON request_logs(trace_id, created_at DESC)",
+            [],
+        )?;
+        Ok(())
+    }
 }
 
 fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
     Ok(RequestLog {
-        key_id: row.get(0)?,
-        account_id: row.get(1)?,
-        request_path: row.get(2)?,
-        method: row.get(3)?,
-        model: row.get(4)?,
-        reasoning_effort: row.get(5)?,
-        upstream_url: row.get(6)?,
-        status_code: row.get(7)?,
-        input_tokens: row.get(8)?,
-        cached_input_tokens: row.get(9)?,
-        output_tokens: row.get(10)?,
-        total_tokens: row.get(11)?,
-        reasoning_output_tokens: row.get(12)?,
-        estimated_cost_usd: row.get(13)?,
-        error: row.get(14)?,
-        created_at: row.get(15)?,
+        trace_id: row.get(0)?,
+        key_id: row.get(1)?,
+        account_id: row.get(2)?,
+        request_path: row.get(3)?,
+        original_path: row.get(4)?,
+        adapted_path: row.get(5)?,
+        method: row.get(6)?,
+        model: row.get(7)?,
+        reasoning_effort: row.get(8)?,
+        response_adapter: row.get(9)?,
+        upstream_url: row.get(10)?,
+        status_code: row.get(11)?,
+        input_tokens: row.get(12)?,
+        cached_input_tokens: row.get(13)?,
+        output_tokens: row.get(14)?,
+        total_tokens: row.get(15)?,
+        reasoning_output_tokens: row.get(16)?,
+        estimated_cost_usd: row.get(17)?,
+        error: row.get(18)?,
+        created_at: row.get(19)?,
     })
 }
 

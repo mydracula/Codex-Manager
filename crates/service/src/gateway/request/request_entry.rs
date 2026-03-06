@@ -50,6 +50,12 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
                 if let Some(storage) = super::open_storage() {
                     super::write_request_log(
                         &storage,
+                        super::request_log::RequestLogTraceContext {
+                            trace_id: Some(trace_id.as_str()),
+                            original_path: Some(request_path_for_log.as_str()),
+                            adapted_path: Some(request_path_for_log.as_str()),
+                            response_adapter: None,
+                        },
                         None,
                         None,
                         &request_path_for_log,
@@ -73,7 +79,9 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
         validated.trace_id.as_str(),
         validated.key_id.as_str(),
         validated.protocol_type.as_str(),
+        validated.original_path.as_str(),
         validated.path.as_str(),
+        validated.response_adapter,
         validated.request_method.as_str(),
         validated.model_for_log.as_deref(),
         validated.reasoning_for_log.as_deref(),
@@ -95,7 +103,9 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
         trace_id_for_count_tokens.as_str(),
         key_id_for_count_tokens.as_str(),
         protocol_type_for_count_tokens.as_str(),
+        validated.original_path.as_str(),
         path_for_count_tokens.as_str(),
+        validated.response_adapter,
         request_method_for_count_tokens.as_str(),
         validated.body.as_ref(),
         model_for_count_tokens.as_deref(),

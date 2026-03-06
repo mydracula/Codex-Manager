@@ -17,6 +17,22 @@ fn is_response_completed_event_type(kind: &str) -> bool {
     normalized == "response.completed" || normalized == "response.done"
 }
 
+fn parse_openai_sse_event_value(data: &str, event_name: Option<&str>) -> Option<Value> {
+    let mut value = serde_json::from_str::<Value>(data).ok()?;
+    let event_name = event_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    if let Some(event_name) = event_name {
+        if value.get("type").and_then(Value::as_str).is_none() {
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("type".to_string(), Value::String(event_name));
+            }
+        }
+    }
+    Some(value)
+}
+
 fn extract_chat_content_text(content: Option<&Value>) -> String {
     let Some(content) = content else {
         return String::new();
@@ -637,9 +653,11 @@ fn convert_openai_sse_to_completions_json(body: &[u8]) -> Result<(Vec<u8>, &'sta
     let mut usage: Option<Value> = None;
     let mut completed_response: Option<Value> = None;
     let mut data_lines = Vec::<String>::new();
+    let mut event_name: Option<String> = None;
     let mut saw_text_delta = false;
 
     let flush_frame = |lines: &mut Vec<String>,
+                       event_name: &mut Option<String>,
                        id: &mut String,
                        model: &mut String,
                        created: &mut i64,
@@ -649,19 +667,23 @@ fn convert_openai_sse_to_completions_json(body: &[u8]) -> Result<(Vec<u8>, &'sta
                        completed_response: &mut Option<Value>,
                        saw_text_delta: &mut bool| {
         if lines.is_empty() {
+            *event_name = None;
             return;
         }
         let data = lines.join("\n");
         lines.clear();
         if data.trim() == "[DONE]" {
+            *event_name = None;
             if finish_reason.is_none() {
                 *finish_reason = Some(Value::String("stop".to_string()));
             }
             return;
         }
-        let Ok(value) = serde_json::from_str::<Value>(&data) else {
+        let Some(value) = parse_openai_sse_event_value(&data, event_name.as_deref()) else {
+            *event_name = None;
             return;
         };
+        *event_name = None;
         let event_type = value
             .get("type")
             .and_then(Value::as_str)
@@ -735,6 +757,10 @@ fn convert_openai_sse_to_completions_json(body: &[u8]) -> Result<(Vec<u8>, &'sta
     };
 
     for line in text.lines() {
+        if line.starts_with("event:") {
+            event_name = Some(line[6..].trim_start().to_string());
+            continue;
+        }
         if line.starts_with("data:") {
             data_lines.push(line[5..].trim_start().to_string());
             continue;
@@ -742,6 +768,7 @@ fn convert_openai_sse_to_completions_json(body: &[u8]) -> Result<(Vec<u8>, &'sta
         if line.trim().is_empty() {
             flush_frame(
                 &mut data_lines,
+                &mut event_name,
                 &mut id,
                 &mut model,
                 &mut created,
@@ -755,6 +782,7 @@ fn convert_openai_sse_to_completions_json(body: &[u8]) -> Result<(Vec<u8>, &'sta
     }
     flush_frame(
         &mut data_lines,
+        &mut event_name,
         &mut id,
         &mut model,
         &mut created,
@@ -915,7 +943,9 @@ fn map_openai_response_to_chat_completion(
     let created = source
         .get("created")
         .cloned()
+        .or_else(|| source.get("created_at").cloned())
         .or_else(|| value.get("created").cloned())
+        .or_else(|| value.get("created_at").cloned())
         .unwrap_or_else(|| Value::Number(0.into()));
     let model = source
         .get("model")
@@ -993,6 +1023,11 @@ fn map_openai_response_to_chat_completion(
     if !tool_calls.is_empty() {
         message.insert("tool_calls".to_string(), Value::Array(tool_calls));
     }
+    let finish_reason = if message.get("tool_calls").is_some() {
+        "tool_calls"
+    } else {
+        "stop"
+    };
 
     let mut out = serde_json::Map::new();
     out.insert("id".to_string(), id);
@@ -1007,7 +1042,7 @@ fn map_openai_response_to_chat_completion(
         Value::Array(vec![json!({
             "index": 0,
             "message": Value::Object(message),
-            "finish_reason": "stop"
+            "finish_reason": finish_reason
         })]),
     );
     if let Some(usage) = usage {
@@ -1165,9 +1200,11 @@ fn convert_openai_sse_to_chat_completions_json(
     let mut completed_response: Option<Value> = None;
     let mut tool_calls_by_index = BTreeMap::<usize, AggregatedChatToolCall>::new();
     let mut data_lines = Vec::<String>::new();
+    let mut event_name: Option<String> = None;
     let mut saw_text_delta = false;
 
     let flush_frame = |lines: &mut Vec<String>,
+                       event_name: &mut Option<String>,
                        id: &mut String,
                        model: &mut String,
                        created: &mut i64,
@@ -1178,19 +1215,23 @@ fn convert_openai_sse_to_chat_completions_json(
                        tool_calls_by_index: &mut BTreeMap<usize, AggregatedChatToolCall>,
                        saw_text_delta: &mut bool| {
         if lines.is_empty() {
+            *event_name = None;
             return;
         }
         let data = lines.join("\n");
         lines.clear();
         if data.trim() == "[DONE]" {
+            *event_name = None;
             if finish_reason.is_none() {
                 *finish_reason = Some(Value::String("stop".to_string()));
             }
             return;
         }
-        let Ok(value) = serde_json::from_str::<Value>(&data) else {
+        let Some(value) = parse_openai_sse_event_value(&data, event_name.as_deref()) else {
+            *event_name = None;
             return;
         };
+        *event_name = None;
         let event_type = value
             .get("type")
             .and_then(Value::as_str)
@@ -1270,6 +1311,10 @@ fn convert_openai_sse_to_chat_completions_json(
     };
 
     for line in text.lines() {
+        if line.starts_with("event:") {
+            event_name = Some(line[6..].trim_start().to_string());
+            continue;
+        }
         if line.starts_with("data:") {
             data_lines.push(line[5..].trim_start().to_string());
             continue;
@@ -1277,6 +1322,7 @@ fn convert_openai_sse_to_chat_completions_json(
         if line.trim().is_empty() {
             flush_frame(
                 &mut data_lines,
+                &mut event_name,
                 &mut id,
                 &mut model,
                 &mut created,
@@ -1291,6 +1337,7 @@ fn convert_openai_sse_to_chat_completions_json(
     }
     flush_frame(
         &mut data_lines,
+        &mut event_name,
         &mut id,
         &mut model,
         &mut created,

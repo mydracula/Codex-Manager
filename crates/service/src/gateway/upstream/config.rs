@@ -35,7 +35,8 @@ pub(in super::super) fn resolve_upstream_fallback_base_url(primary_base: &str) -
     .clone()
     .or_else(|| {
         if is_chatgpt_backend_base(primary_base) {
-            // 默认兜底到 OpenAI v1，避免 Cloudflare challenge 时模型列表不可用。
+            // 中文注释：保持 v0.1.4 语义：ChatGPT codex upstream 在 /responses 命中 401/403/429
+            // 或 challenge 时，默认兜底到 OpenAI v1，避免直接暴露 challenge blocked。
             Some("https://api.openai.com/v1".to_string())
         } else {
             None

@@ -76,6 +76,31 @@ function resolveAccountDisplayName(item) {
   return fallbackAccountNameFromId(accountId);
 }
 
+function resolveDisplayRequestPath(item) {
+  const originalPath = String(item?.originalPath || "").trim();
+  if (originalPath) {
+    return originalPath;
+  }
+  return String(item?.requestPath || "").trim();
+}
+
+function buildRequestRouteMeta(item, displayPath) {
+  const parts = [];
+  const adaptedPath = String(item?.adaptedPath || "").trim();
+  const responseAdapter = String(item?.responseAdapter || "").trim();
+  const upstreamUrl = String(item?.upstreamUrl || "").trim();
+  if (adaptedPath && adaptedPath !== displayPath) {
+    parts.push(`转发 ${adaptedPath}`);
+  }
+  if (responseAdapter) {
+    parts.push(`适配 ${responseAdapter}`);
+  }
+  if (upstreamUrl) {
+    parts.push(`上游 ${upstreamUrl}`);
+  }
+  return parts;
+}
+
 function matchesStatusFilter(item, filter) {
   if (filter === "all") return true;
   const code = Number(item.statusCode);
@@ -186,6 +211,7 @@ function createRequestLogRow(item, index) {
   const accountLabel = resolveAccountDisplayName(item);
   const accountId = item?.accountId || item?.account?.id || "";
   const keyId = item?.keyId || "";
+  const traceId = String(item?.traceId || "").trim();
   const accountWrap = document.createElement("div");
   accountWrap.className = "cell-stack";
   if (accountLabel) {
@@ -208,6 +234,14 @@ function createRequestLogRow(item, index) {
     accountWrap.textContent = keyFallback || "-";
     cellAccount.title = keyFallback || "-";
   }
+  if (traceId) {
+    const traceMeta = document.createElement("small");
+    traceMeta.className = "account-trace";
+    traceMeta.textContent = `trace ${traceId}`;
+    traceMeta.title = traceId;
+    accountWrap.appendChild(traceMeta);
+    cellAccount.title = cellAccount.title ? `${cellAccount.title}\ntrace: ${traceId}` : `trace: ${traceId}`;
+  }
   cellAccount.appendChild(accountWrap);
   row.appendChild(cellAccount);
 
@@ -223,20 +257,43 @@ function createRequestLogRow(item, index) {
 
   const cellPath = document.createElement("td");
   cellPath.className = "requestlog-col requestlog-col-path";
+  const displayPath = resolveDisplayRequestPath(item);
+  const routeMetaParts = buildRequestRouteMeta(item, displayPath);
   const pathWrap = document.createElement("div");
-  pathWrap.className = "request-path-wrap";
+  pathWrap.className = "cell-stack request-path-stack";
+  const pathMainRow = document.createElement("div");
+  pathMainRow.className = "request-path-wrap";
   const pathText = document.createElement("span");
   pathText.className = "request-path";
-  pathText.textContent = item.requestPath || "-";
-  pathText.title = item.requestPath || "-";
+  pathText.textContent = displayPath || item.requestPath || "-";
+  const pathTitle = [];
+  if (displayPath) {
+    pathTitle.push(`显示: ${displayPath}`);
+  }
+  const recordedPath = String(item?.requestPath || "").trim();
+  if (recordedPath && recordedPath !== displayPath) {
+    pathTitle.push(`记录: ${recordedPath}`);
+  }
+  if (routeMetaParts.length > 0) {
+    pathTitle.push(...routeMetaParts);
+  }
+  pathText.title = pathTitle.length > 0 ? pathTitle.join("\n") : "-";
   const copyBtn = document.createElement("button");
   copyBtn.className = "ghost path-copy";
   copyBtn.type = "button";
   copyBtn.textContent = "复制";
   copyBtn.title = "复制请求路径";
   copyBtn.dataset.logIndex = String(index);
-  pathWrap.appendChild(pathText);
-  pathWrap.appendChild(copyBtn);
+  pathMainRow.appendChild(pathText);
+  pathMainRow.appendChild(copyBtn);
+  pathWrap.appendChild(pathMainRow);
+  if (routeMetaParts.length > 0) {
+    const routeMeta = document.createElement("small");
+    routeMeta.className = "route-meta";
+    routeMeta.textContent = routeMetaParts.join(" | ");
+    routeMeta.title = routeMeta.textContent;
+    pathWrap.appendChild(routeMeta);
+  }
   cellPath.appendChild(pathWrap);
   row.appendChild(cellPath);
 
@@ -394,10 +451,11 @@ async function onRequestLogRowsClick(event) {
     return;
   }
   const rowItem = requestLogWindowState.filtered[index];
-  if (!rowItem?.requestPath) {
+  const textToCopy = resolveDisplayRequestPath(rowItem) || rowItem?.requestPath || "";
+  if (!textToCopy) {
     return;
   }
-  const ok = await copyText(rowItem.requestPath);
+  const ok = await copyText(textToCopy);
   copyBtn.textContent = ok ? "已复制" : "失败";
   const token = String(Date.now());
   copyBtn.dataset.copyToken = token;
