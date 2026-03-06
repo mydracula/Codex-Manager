@@ -101,8 +101,6 @@ docker build -f docker/Dockerfile.web -t codexmanager-all-in-one .
 docker run --rm -p 48761:48761 \
   -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
   -e CODEXMANAGER_DB_PATH=/tmp/codexmanager.db \
-  -e CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS=0 \
-  -e CODEXMANAGER_UPSTREAM_STREAM_TIMEOUT_MS=900000 \
   codexmanager-all-in-one
 ```
 
