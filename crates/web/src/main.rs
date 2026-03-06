@@ -117,6 +117,12 @@ fn is_hop_by_hop_header(name: &axum::http::HeaderName) -> bool {
     )
 }
 
+fn log_body_preview(prefix: &str, bytes: &Bytes) {
+    let preview_len = bytes.len().min(512);
+    let preview = String::from_utf8_lossy(&bytes[..preview_len]);
+    eprintln!("{prefix} body_preview={} bytes={}", preview.escape_debug(), bytes.len());
+}
+
 fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -295,6 +301,7 @@ async fn gateway_proxy(
 ) -> Response {
     let path_and_query = uri.path_and_query().map(|v| v.as_str()).unwrap_or(uri.path());
     let upstream_url = format!("http://{}{}", state.service_addr, path_and_query);
+    eprintln!("gateway_proxy request method={} path={} upstream={}", method, path_and_query, upstream_url);
     let mut req = state.client.request(method, upstream_url);
     for (name, value) in &headers {
         if name.as_str().eq_ignore_ascii_case("host") || is_hop_by_hop_header(name) {
@@ -306,6 +313,7 @@ async fn gateway_proxy(
     let resp = match resp {
         Ok(v) => v,
         Err(err) => {
+            eprintln!("gateway_proxy upstream request failed path={} err={}", path_and_query, err);
             let msg = format!("upstream error: {err}");
             return (StatusCode::BAD_GATEWAY, msg).into_response();
         }
@@ -316,10 +324,15 @@ async fn gateway_proxy(
     let bytes = match resp.bytes().await {
         Ok(v) => v,
         Err(err) => {
+            eprintln!("gateway_proxy upstream read failed path={} err={}", path_and_query, err);
             let msg = format!("upstream read error: {err}");
             return (StatusCode::BAD_GATEWAY, msg).into_response();
         }
     };
+    eprintln!("gateway_proxy response path={} status={} content_type={:?}", path_and_query, status, resp_headers.get("content-type"));
+    if status.is_client_error() || status.is_server_error() {
+        log_body_preview("gateway_proxy error", &bytes);
+    }
     let mut out = Response::new(axum::body::Body::from(bytes));
     *out.status_mut() = status;
     for (name, value) in &resp_headers {
