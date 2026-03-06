@@ -15,13 +15,44 @@ export CODEXMANAGER_WEB_NO_SPAWN_SERVICE
 
 mkdir -p "$(dirname "$CODEXMANAGER_DB_PATH")"
 
-/usr/local/bin/codexmanager-service &
-service_pid=$!
+service_pid=""
+web_pid=""
+shutdown_in_progress="0"
 
 cleanup() {
-  kill "$service_pid" 2>/dev/null || true
+  if [ "$shutdown_in_progress" = "1" ]; then
+    return
+  fi
+  shutdown_in_progress="1"
+  if [ -n "$web_pid" ]; then
+    kill "$web_pid" 2>/dev/null || true
+  fi
+  if [ -n "$service_pid" ]; then
+    kill "$service_pid" 2>/dev/null || true
+  fi
 }
 
 trap cleanup EXIT INT TERM
 
-exec /usr/local/bin/codexmanager-web
+/usr/local/bin/codexmanager-service &
+service_pid=$!
+/usr/local/bin/codexmanager-web &
+web_pid=$!
+
+while :; do
+  if ! kill -0 "$service_pid" 2>/dev/null; then
+    wait "$service_pid" || true
+    echo "codexmanager-service exited; stopping container" >&2
+    cleanup
+    wait "$web_pid" || true
+    exit 1
+  fi
+  if ! kill -0 "$web_pid" 2>/dev/null; then
+    wait "$web_pid" || true
+    echo "codexmanager-web exited; stopping container" >&2
+    cleanup
+    wait "$service_pid" || true
+    exit 1
+  fi
+  sleep 1
+done
