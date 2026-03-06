@@ -101,6 +101,22 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+fn is_hop_by_hop_header(name: &axum::http::HeaderName) -> bool {
+    matches!(
+        name.as_str().to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "content-length"
+            | "content-encoding"
+    )
+}
+
 fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -281,7 +297,7 @@ async fn gateway_proxy(
     let upstream_url = format!("http://{}{}", state.service_addr, path_and_query);
     let mut req = state.client.request(method, upstream_url);
     for (name, value) in &headers {
-        if name.as_str().eq_ignore_ascii_case("host") {
+        if name.as_str().eq_ignore_ascii_case("host") || is_hop_by_hop_header(name) {
             continue;
         }
         req = req.header(name, value);
@@ -307,6 +323,9 @@ async fn gateway_proxy(
     let mut out = Response::new(axum::body::Body::from(bytes));
     *out.status_mut() = status;
     for (name, value) in &resp_headers {
+        if is_hop_by_hop_header(name) {
+            continue;
+        }
         out.headers_mut().insert(name, value.clone());
     }
     out
