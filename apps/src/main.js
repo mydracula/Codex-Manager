@@ -143,6 +143,7 @@ let upstreamProxySyncInFlight = null;
 let upstreamProxySyncedProbeId = -1;
 let backgroundTasksSyncInFlight = null;
 let backgroundTasksSyncedProbeId = -1;
+let startupServiceSyncInFlight = null;
 let apiModelsRemoteRefreshInFlight = null;
 let requestLogsBootstrapRefreshInFlight = null;
 function buildRefreshAllTasks(options = {}) {
@@ -1087,6 +1088,30 @@ async function syncBackgroundTasksOnStartup() {
   }
 }
 
+async function syncServiceSettingsOnStartup() {
+  if (startupServiceSyncInFlight) {
+    return startupServiceSyncInFlight;
+  }
+  startupServiceSyncInFlight = (async () => {
+    const connected = await ensureConnected();
+    serviceLifecycle.updateServiceToggle();
+    if (!connected) {
+      return false;
+    }
+    await syncRouteStrategyOnStartup();
+    await syncCpaNoCookieHeaderModeOnStartup();
+    await syncUpstreamProxyOnStartup();
+    await syncBackgroundTasksOnStartup();
+    return true;
+  })();
+
+  try {
+    return await startupServiceSyncInFlight;
+  } finally {
+    startupServiceSyncInFlight = null;
+  }
+}
+
 function getPathValue(source, path) {
   const steps = String(path).split(".");
   let cursor = source;
@@ -2016,11 +2041,9 @@ function bootstrap() {
   updateRequestLogFilterButtons();
   scheduleStartupUpdateCheck();
   void serviceLifecycle.autoStartService().finally(() => {
-    void syncRouteStrategyOnStartup();
-    void syncCpaNoCookieHeaderModeOnStartup();
-    void syncUpstreamProxyOnStartup();
-    void syncBackgroundTasksOnStartup();
-    setStartupMask(false);
+    void syncServiceSettingsOnStartup().finally(() => {
+      setStartupMask(false);
+    });
   });
 }
 
