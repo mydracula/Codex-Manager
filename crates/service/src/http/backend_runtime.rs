@@ -77,7 +77,12 @@ fn spawn_request_workers(worker_count: usize, rx: Receiver<Request>, is_stream_q
         let _ = thread::spawn(move || {
             while let Ok(request) = worker_rx.recv() {
                 crate::gateway::record_http_queue_dequeue(is_stream_queue);
-                crate::http::backend_router::handle_backend_request(request);
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    crate::http::backend_router::handle_backend_request(request);
+                }));
+                if result.is_err() {
+                    log::error!("backend worker panicked while handling request");
+                }
             }
         });
     }
@@ -146,7 +151,11 @@ fn run_backend_server(server: Server) {
         }
         if enqueue_request(request, &normal_tx, &stream_tx).is_err() {
             crate::gateway::record_http_queue_enqueue_failure();
-            break;
+            log::error!("backend request queue unavailable; responding 503 instead of stopping backend");
+            let response = tiny_http::Response::from_string("service overloaded")
+                .with_status_code(503);
+            let _ = request.respond(response);
+            continue;
         }
     }
 }
