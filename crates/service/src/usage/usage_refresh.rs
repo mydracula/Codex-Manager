@@ -35,12 +35,12 @@ static TOKEN_REFRESH_POLLING_STARTED: OnceLock<()> = OnceLock::new();
 static PENDING_USAGE_REFRESH_TASKS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static USAGE_REFRESH_EXECUTOR: OnceLock<UsageRefreshExecutor> = OnceLock::new();
 static BACKGROUND_TASKS_CONFIG_LOADED: OnceLock<()> = OnceLock::new();
-static USAGE_POLLING_ENABLED: AtomicBool = AtomicBool::new(true);
+static USAGE_POLLING_ENABLED: AtomicBool = AtomicBool::new(false);
 static USAGE_POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_USAGE_POLL_INTERVAL_SECS);
-static GATEWAY_KEEPALIVE_ENABLED: AtomicBool = AtomicBool::new(true);
+static GATEWAY_KEEPALIVE_ENABLED: AtomicBool = AtomicBool::new(false);
 static GATEWAY_KEEPALIVE_INTERVAL_SECS: AtomicU64 =
     AtomicU64::new(DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS);
-static TOKEN_REFRESH_POLLING_ENABLED: AtomicBool = AtomicBool::new(true);
+static TOKEN_REFRESH_POLLING_ENABLED: AtomicBool = AtomicBool::new(false);
 static TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC: AtomicU64 =
     AtomicU64::new(DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS);
 static USAGE_REFRESH_WORKERS: AtomicUsize = AtomicUsize::new(DEFAULT_USAGE_REFRESH_WORKERS);
@@ -61,11 +61,11 @@ const COMMON_POLL_FAILURE_BACKOFF_MAX_ENV: &str = "CODEXMANAGER_POLL_FAILURE_BAC
 const USAGE_POLL_JITTER_ENV: &str = "CODEXMANAGER_USAGE_POLL_JITTER_SECS";
 const USAGE_POLL_FAILURE_BACKOFF_MAX_ENV: &str = "CODEXMANAGER_USAGE_POLL_FAILURE_BACKOFF_MAX_SECS";
 const USAGE_REFRESH_WORKERS_ENV: &str = "CODEXMANAGER_USAGE_REFRESH_WORKERS";
-const DEFAULT_USAGE_REFRESH_WORKERS: usize = 4;
+const DEFAULT_USAGE_REFRESH_WORKERS: usize = 1;
 const DEFAULT_HTTP_WORKER_FACTOR: usize = 4;
-const DEFAULT_HTTP_WORKER_MIN: usize = 8;
+const DEFAULT_HTTP_WORKER_MIN: usize = 2;
 const DEFAULT_HTTP_STREAM_WORKER_FACTOR: usize = 1;
-const DEFAULT_HTTP_STREAM_WORKER_MIN: usize = 2;
+const DEFAULT_HTTP_STREAM_WORKER_MIN: usize = 1;
 const ENV_HTTP_WORKER_FACTOR: &str = "CODEXMANAGER_HTTP_WORKER_FACTOR";
 const ENV_HTTP_WORKER_MIN: &str = "CODEXMANAGER_HTTP_WORKER_MIN";
 const ENV_HTTP_STREAM_WORKER_FACTOR: &str = "CODEXMANAGER_HTTP_STREAM_WORKER_FACTOR";
@@ -219,7 +219,7 @@ fn ensure_background_tasks_config_loaded() {
 }
 
 fn reload_background_tasks_from_env() {
-    let usage_polling_default_enabled = std::env::var(ENV_DISABLE_POLLING).is_err();
+    let usage_polling_default_enabled = false;
     USAGE_POLLING_ENABLED.store(
         env_bool_or(ENV_USAGE_POLLING_ENABLED, usage_polling_default_enabled),
         Ordering::Relaxed,
@@ -233,7 +233,7 @@ fn reload_background_tasks_from_env() {
         Ordering::Relaxed,
     );
     GATEWAY_KEEPALIVE_ENABLED.store(
-        env_bool_or(ENV_GATEWAY_KEEPALIVE_ENABLED, true),
+        env_bool_or(ENV_GATEWAY_KEEPALIVE_ENABLED, false),
         Ordering::Relaxed,
     );
     GATEWAY_KEEPALIVE_INTERVAL_SECS.store(
@@ -247,7 +247,7 @@ fn reload_background_tasks_from_env() {
         Ordering::Relaxed,
     );
     TOKEN_REFRESH_POLLING_ENABLED.store(
-        env_bool_or(ENV_TOKEN_REFRESH_POLLING_ENABLED, true),
+        env_bool_or(ENV_TOKEN_REFRESH_POLLING_ENABLED, false),
         Ordering::Relaxed,
     );
     TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC.store(

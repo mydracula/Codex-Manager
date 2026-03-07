@@ -25,6 +25,10 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 params.and_then(|params| account_list::read_accounts(params, pagination_requested)),
             )
         }
+        "account/stats" => super::value_or_error(account_list::read_account_stats()),
+        "account/dashboardHighlights" => {
+            super::value_or_error(crate::dashboard_highlights::read_dashboard_highlights())
+        }
         "account/delete" => {
             let account_id = super::str_param(req, "accountId").unwrap_or("");
             super::ok_or_error(account_delete::delete_account(account_id))

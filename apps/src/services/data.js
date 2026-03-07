@@ -88,10 +88,29 @@ function buildRequestLogIdentity(item, index) {
   ].join("|");
 }
 
-// 刷新账号列表
+// 刷新账号列表（仅拉首屏分页，避免启动时全量加载大量账号）
 export async function refreshAccounts() {
-  const res = ensureRpcSuccess(await api.serviceAccountList(), "读取账号列表失败");
+  const res = ensureRpcSuccess(
+    await api.serviceAccountList({
+      page: 1,
+      pageSize: state.accountPageSize,
+      query: state.accountSearch,
+      filter: state.accountFilter,
+      groupFilter: state.accountGroupFilter,
+    }),
+    "读取账号列表失败",
+  );
   state.accountList = Array.isArray(res.items) ? res.items : [];
+  const total = Number(res.total);
+  const page = Number(res.page);
+  const pageSize = Number(res.pageSize);
+  if (Number.isFinite(total) && Number.isFinite(page) && Number.isFinite(pageSize)) {
+    state.accountPageItems = state.accountList;
+    state.accountPageTotal = Math.max(0, total);
+    state.accountPage = page > 0 ? Math.trunc(page) : 1;
+    state.accountPageSize = pageSize > 0 ? Math.trunc(pageSize) : state.accountPageSize;
+    state.accountPageLoaded = true;
+  }
   try {
     const manual = await api.serviceGatewayManualAccountGet();
     state.manualPreferredAccountId = String(manual?.accountId || "").trim();
@@ -146,6 +165,30 @@ export async function refreshAccountsPage(options = {}) {
   state.accountPageSize = nextPageSize > 0 ? Math.trunc(nextPageSize) : state.accountPageSize;
   state.accountPageLoaded = true;
   return true;
+}
+
+export async function refreshAccountStats() {
+  const res = ensureRpcSuccess(await api.serviceAccountStats(), "读取账号统计失败");
+  state.accountStats = {
+    total: Number.isFinite(Number(res.total)) ? Math.max(0, Math.trunc(Number(res.total))) : 0,
+    okCount: Number.isFinite(Number(res.okCount)) ? Math.max(0, Math.trunc(Number(res.okCount))) : 0,
+    unavailableCount: Number.isFinite(Number(res.unavailableCount))
+      ? Math.max(0, Math.trunc(Number(res.unavailableCount)))
+      : 0,
+    lowCount: Number.isFinite(Number(res.lowCount)) ? Math.max(0, Math.trunc(Number(res.lowCount))) : 0,
+  };
+}
+
+export async function refreshDashboardHighlights() {
+  const res = ensureRpcSuccess(
+    await api.serviceAccountDashboardHighlights(),
+    "读取仪表盘账号摘要失败",
+  );
+  state.dashboardHighlights = {
+    current: res?.current || null,
+    primaryRecommendation: res?.primaryRecommendation || null,
+    secondaryRecommendation: res?.secondaryRecommendation || null,
+  };
 }
 
 // 刷新用量列表

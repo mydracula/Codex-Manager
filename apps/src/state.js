@@ -8,6 +8,17 @@ export const state = {
   serviceLastErrorAt: 0,
   currentPage: "dashboard",
   accountList: [],
+  accountStats: {
+    total: 0,
+    okCount: 0,
+    unavailableCount: 0,
+    lowCount: 0,
+  },
+  dashboardHighlights: {
+    current: null,
+    primaryRecommendation: null,
+    secondaryRecommendation: null,
+  },
   usageList: [],
   apiKeyList: [],
   apiModelOptions: [],

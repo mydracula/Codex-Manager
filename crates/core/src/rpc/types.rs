@@ -80,6 +80,33 @@ pub struct AccountListResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AccountStatsResult {
+    pub total: i64,
+    pub ok_count: i64,
+    pub unavailable_count: i64,
+    pub low_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardHighlightAccount {
+    pub id: String,
+    pub label: String,
+    pub status_level: String,
+    pub status_text: String,
+    pub usage: Option<UsageSnapshotResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardHighlightsResult {
+    pub current: Option<DashboardHighlightAccount>,
+    pub primary_recommendation: Option<DashboardHighlightAccount>,
+    pub secondary_recommendation: Option<DashboardHighlightAccount>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceAuthInfo {
     pub user_code_url: String,
     pub token_url: String,

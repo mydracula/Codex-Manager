@@ -1,5 +1,5 @@
 use codexmanager_core::{
-    rpc::types::{AccountListParams, AccountListResult, AccountSummary},
+    rpc::types::{AccountListParams, AccountListResult, AccountStatsResult, AccountSummary},
     storage::Account,
 };
 
@@ -13,6 +13,25 @@ enum AccountFilter {
     All,
     Active,
     Low,
+}
+
+pub(crate) fn read_account_stats() -> Result<AccountStatsResult, String> {
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let total = storage
+        .account_count_filtered(None, None)
+        .map_err(|err| format!("count accounts failed: {err}"))?;
+    let ok_count = storage
+        .account_count_active_available(None, None)
+        .map_err(|err| format!("count active accounts failed: {err}"))?;
+    let low_count = storage
+        .account_count_low_quota(None, None)
+        .map_err(|err| format!("count low quota accounts failed: {err}"))?;
+    Ok(AccountStatsResult {
+        total,
+        ok_count,
+        unavailable_count: (total - ok_count).max(0),
+        low_count,
+    })
 }
 
 pub(crate) fn read_accounts(

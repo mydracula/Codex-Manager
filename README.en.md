@@ -264,11 +264,11 @@ It updates:
 | `CODEXMANAGER_ALLOW_NON_LOOPBACK_LOGIN_ADDR` | `false` | Allows non-loopback login callback address when set to `1/true/TRUE/yes/YES`. |
 | `CODEXMANAGER_USAGE_BASE_URL` | `https://chatgpt.com` | Base URL for usage requests. |
 | `CODEXMANAGER_DISABLE_POLLING` | Unset (polling enabled) | Legacy-compatible switch: if present (any value), disables usage polling thread. |
-| `CODEXMANAGER_USAGE_POLLING_ENABLED` | `true` | Global usage-polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). If both this and `CODEXMANAGER_DISABLE_POLLING` are present, this one wins. |
+| `CODEXMANAGER_USAGE_POLLING_ENABLED` | `false` | Global usage-polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). If both this and `CODEXMANAGER_DISABLE_POLLING` are present, this one wins. Disabled by default to reduce background pressure for large account sets. |
 | `CODEXMANAGER_USAGE_POLL_INTERVAL_SECS` | `600` | Usage polling interval in seconds, minimum `30`. Invalid values fall back to default. |
-| `CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED` | `true` | Global gateway-keepalive switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). |
+| `CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED` | `false` | Global gateway-keepalive switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). Disabled by default to reduce steady-state probing cost. |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS` | `180` | Gateway keepalive interval in seconds, minimum `30`. |
-| `CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED` | `true` | Global token-refresh polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). |
+| `CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED` | `false` | Global token-refresh polling switch (`1/true/on/yes` to enable, `0/false/off/no` to disable). Disabled by default; enable only when needed. |
 | `CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS` | `60` | Token-refresh polling interval in seconds, minimum `10`. |
 | `CODEXMANAGER_UPSTREAM_BASE_URL` | `https://chatgpt.com/backend-api/codex` | Primary upstream base URL. Bare ChatGPT host values are normalized to backend-api/codex. |
 | `CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL` | Auto-inferred | Explicit fallback upstream. If unset and primary is ChatGPT backend, fallback defaults to `https://api.openai.com/v1`. |
@@ -285,7 +285,7 @@ It updates:
 | `CODEXMANAGER_TRACE_BODY_PREVIEW_MAX_BYTES` | `0` | Max bytes for trace body preview. `0` disables body preview. |
 | `CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES` | `16777216` | Max accepted request body size for front proxy (16 MiB default). |
 | `CODEXMANAGER_HTTP_WORKER_FACTOR` | `4` | Backend worker factor; workers = `max(cpu * factor, worker_min)` (service restart required after runtime change). |
-| `CODEXMANAGER_HTTP_WORKER_MIN` | `8` | Minimum backend workers (service restart required after runtime change). |
+| `CODEXMANAGER_HTTP_WORKER_MIN` | `2` | Minimum backend workers (service restart required after runtime change). |
 | `CODEXMANAGER_HTTP_QUEUE_FACTOR` | `4` | Backend queue factor; queue = `max(worker * factor, queue_min)`. |
 | `CODEXMANAGER_HTTP_QUEUE_MIN` | `32` | Minimum backend queue size. |
 
@@ -295,14 +295,14 @@ It updates:
 | `CODEXMANAGER_ACCOUNT_IMPORT_BATCH_SIZE` | `200` | Import batch size for auth.json bulk imports. |
 | `CODEXMANAGER_TRACE_QUEUE_CAPACITY` | `2048` | Gateway trace async queue capacity (too small may drop traces; too large may increase memory). |
 | `CODEXMANAGER_HTTP_STREAM_WORKER_FACTOR` | `1` | Backend stream worker factor (SSE/long-lived responses; service restart required after runtime change). |
-| `CODEXMANAGER_HTTP_STREAM_WORKER_MIN` | `2` | Minimum backend stream workers (service restart required after runtime change). |
+| `CODEXMANAGER_HTTP_STREAM_WORKER_MIN` | `1` | Minimum backend stream workers (service restart required after runtime change). |
 | `CODEXMANAGER_HTTP_STREAM_QUEUE_FACTOR` | `2` | Backend stream queue factor. |
 | `CODEXMANAGER_HTTP_STREAM_QUEUE_MIN` | `16` | Minimum backend stream queue size. |
 | `CODEXMANAGER_POLL_JITTER_SECS` | Unset | Common polling jitter in seconds; can be overridden by module-specific jitter envs. |
 | `CODEXMANAGER_POLL_FAILURE_BACKOFF_MAX_SECS` | Unset | Common failure backoff cap in seconds; can be overridden by module-specific backoff envs. |
 | `CODEXMANAGER_USAGE_POLL_JITTER_SECS` | `5` | Usage polling jitter in seconds. |
 | `CODEXMANAGER_USAGE_POLL_FAILURE_BACKOFF_MAX_SECS` | `1800` | Usage polling failure backoff cap in seconds. |
-| `CODEXMANAGER_USAGE_REFRESH_WORKERS` | `4` | Usage refresh worker count (configurable in Settings; service restart required after runtime change). |
+| `CODEXMANAGER_USAGE_REFRESH_WORKERS` | `1` | Usage refresh worker count (configurable in Settings; service restart required after runtime change). Tightened to 1 by default to lower CPU/RAM spikes. |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_JITTER_SECS` | `5` | Keepalive jitter in seconds. |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS` | `900` | Keepalive failure backoff cap in seconds. |
 | `CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS` | `60` | Dedupe window (seconds) for inserting usage refresh failure events, to avoid spamming the event table on transient failures. |

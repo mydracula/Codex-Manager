@@ -400,6 +400,20 @@ export async function serviceUsageList() {
   return invoke("service_usage_list", withAddr());
 }
 
+export async function serviceAccountStats() {
+  if (!isTauriRuntime()) {
+    return rpcInvoke("account/stats");
+  }
+  return invoke("service_account_stats", withAddr());
+}
+
+export async function serviceAccountDashboardHighlights() {
+  if (!isTauriRuntime()) {
+    return rpcInvoke("account/dashboardHighlights");
+  }
+  return invoke("service_account_dashboard_highlights", withAddr());
+}
+
 export async function serviceUsageRefresh(accountId) {
   if (!isTauriRuntime()) {
     return rpcInvoke("account/usage/refresh", accountId ? { accountId } : undefined);

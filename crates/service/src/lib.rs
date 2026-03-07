@@ -21,6 +21,8 @@ mod account_cleanup;
 mod account_delete;
 #[path = "account/account_delete_many.rs"]
 mod account_delete_many;
+#[path = "account/dashboard_highlights.rs"]
+mod dashboard_highlights;
 #[path = "account/account_export.rs"]
 mod account_export;
 #[path = "account/account_import.rs"]

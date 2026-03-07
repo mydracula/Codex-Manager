@@ -211,3 +211,35 @@ test("initializeService identifies unexpected service response", async () => {
   );
   assert.equal(hintCalls.at(-1)?.[1], true);
 });
+
+test("ensureConnected restarts service when stored connected state is stale", async () => {
+  let initCalls = 0;
+  let startCalls = 0;
+  const api = {
+    serviceInitialize: async () => {
+      initCalls += 1;
+      if (initCalls === 1) {
+        throw new Error("connection refused");
+      }
+      return { server_name: "codexmanager-service", version: "test" };
+    },
+    serviceStart: async () => {
+      startCalls += 1;
+    },
+    serviceStop: async () => {},
+  };
+  const state = { serviceConnected: true, serviceAddr: "localhost:5050" };
+  const service = createConnectionService({
+    api,
+    state,
+    setStatus: () => {},
+    setServiceHint: () => {},
+    wait: async () => {},
+  });
+
+  const ok = await service.ensureConnected();
+
+  assert.equal(ok, true);
+  assert.equal(startCalls, 1);
+  assert.equal(state.serviceConnected, true);
+});

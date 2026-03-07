@@ -327,6 +327,18 @@ async fn service_usage_list(addr: Option<String>) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
+async fn service_account_stats(addr: Option<String>) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("account/stats", addr, None).await
+}
+
+#[tauri::command]
+async fn service_account_dashboard_highlights(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("account/dashboardHighlights", addr, None).await
+}
+
+#[tauri::command]
 async fn service_usage_refresh(
     addr: Option<String>,
     account_id: Option<String>,
@@ -854,6 +866,8 @@ pub fn run() {
             local_account_delete,
             service_usage_read,
             service_usage_list,
+            service_account_stats,
+            service_account_dashboard_highlights,
             service_usage_refresh,
             service_rpc_token,
             service_listen_config_get,

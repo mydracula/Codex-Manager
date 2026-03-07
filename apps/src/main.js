@@ -43,6 +43,8 @@ import {
 } from "./services/connection";
 import {
   refreshAccounts,
+  refreshAccountStats,
+  refreshDashboardHighlights,
   refreshAccountsPage,
   refreshUsageList,
   refreshApiKeys,
@@ -139,17 +141,17 @@ const ROUTE_STRATEGY_BALANCED = "balanced";
 const SERVICE_LISTEN_MODE_LOOPBACK = "loopback";
 const SERVICE_LISTEN_MODE_ALL_INTERFACES = "all_interfaces";
 const DEFAULT_BACKGROUND_TASKS_SETTINGS = {
-  usagePollingEnabled: true,
+  usagePollingEnabled: false,
   usagePollIntervalSecs: 600,
-  gatewayKeepaliveEnabled: true,
+  gatewayKeepaliveEnabled: false,
   gatewayKeepaliveIntervalSecs: 180,
-  tokenRefreshPollingEnabled: true,
+  tokenRefreshPollingEnabled: false,
   tokenRefreshPollIntervalSecs: 60,
-  usageRefreshWorkers: 4,
+  usageRefreshWorkers: 1,
   httpWorkerFactor: 4,
-  httpWorkerMin: 8,
+  httpWorkerMin: 2,
   httpStreamWorkerFactor: 1,
-  httpStreamWorkerMin: 2,
+  httpStreamWorkerMin: 1,
 };
 const BACKGROUND_TASKS_RESTART_KEYS_DEFAULT = [
   "usageRefreshWorkers",
@@ -306,6 +308,8 @@ function buildRefreshAllTasks(options = {}) {
   const includeRequestLogs = options.includeRequestLogs !== false;
   const tasks = [
     { name: "accounts", label: "账号列表", run: refreshAccounts },
+    { name: "account-stats", label: "账号统计", run: refreshAccountStats },
+    { name: "dashboard-highlights", label: "仪表盘摘要", run: refreshDashboardHighlights },
     { name: "usage", label: "账号用量", run: () => refreshUsageList({ refreshRemote: refreshRemoteUsage }) },
     { name: "api-models", label: "模型列表", run: () => refreshApiModels({ refreshRemote: refreshRemoteModels }) },
     { name: "api-keys", label: "平台密钥", run: refreshApiKeys },
@@ -2154,7 +2158,11 @@ async function refreshAccountsAndUsage() {
   serviceLifecycle.updateServiceToggle();
   if (!ok) return false;
 
-  const tasks = [{ name: "accounts", run: refreshAccounts }];
+  const tasks = [
+    { name: "accounts", run: refreshAccounts },
+    { name: "account-stats", run: refreshAccountStats },
+    { name: "dashboard-highlights", run: refreshDashboardHighlights },
+  ];
   if (includeUsage) {
     tasks.push({ name: "usage", run: refreshUsageList });
   }

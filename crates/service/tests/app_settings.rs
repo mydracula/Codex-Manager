@@ -29,17 +29,17 @@ fn reset_runtime_defaults() {
         "upstreamProxyUrl": "",
         "envOverrides": {},
         "backgroundTasks": {
-            "usagePollingEnabled": true,
+            "usagePollingEnabled": false,
             "usagePollIntervalSecs": 600,
-            "gatewayKeepaliveEnabled": true,
+            "gatewayKeepaliveEnabled": false,
             "gatewayKeepaliveIntervalSecs": 180,
-            "tokenRefreshPollingEnabled": true,
+            "tokenRefreshPollingEnabled": false,
             "tokenRefreshPollIntervalSecs": 60,
-            "usageRefreshWorkers": 4,
+            "usageRefreshWorkers": 1,
             "httpWorkerFactor": 4,
-            "httpWorkerMin": 8,
+            "httpWorkerMin": 2,
             "httpStreamWorkerFactor": 1,
-            "httpStreamWorkerMin": 2
+            "httpStreamWorkerMin": 1
         }
     })));
 }

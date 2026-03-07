@@ -146,8 +146,21 @@ export function createConnectionService(deps) {
   }
 
   async function ensureConnected() {
-    if (stateRef.serviceConnected) return true;
-    return initializeService({ retries: 1, delayMs: 200 });
+    if (stateRef.serviceConnected) {
+      const healthy = await initializeService({ retries: 0, silent: true });
+      if (healthy) {
+        return true;
+      }
+    }
+    try {
+      return await startService(stateRef.serviceAddr || "localhost:48760", {
+        retries: 2,
+        delayMs: 300,
+        silent: true,
+      });
+    } catch {
+      return initializeService({ retries: 1, delayMs: 200 });
+    }
   }
 
   async function startService(rawAddr, options = {}) {

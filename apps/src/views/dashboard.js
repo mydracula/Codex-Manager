@@ -77,7 +77,8 @@ function getUsageStats(accounts, usageMap) {
 export function renderDashboard() {
   const usageMap = getUsageMapFromState();
 
-  const stats = getUsageStats(state.accountList, usageMap);
+  const stats = state.accountStats || getUsageStats(state.accountList, usageMap);
+  const highlights = state.dashboardHighlights || {};
   if (dom.metricTotal) dom.metricTotal.textContent = stats.total;
   if (dom.metricAvailable) dom.metricAvailable.textContent = stats.okCount;
   if (dom.metricUnavailable) dom.metricUnavailable.textContent = stats.unavailableCount;
@@ -104,8 +105,12 @@ export function renderDashboard() {
     usageMap,
     state.requestLogList,
     state.manualPreferredAccountId,
+    highlights.current,
   );
-  renderRecommendations(state.accountList, usageMap);
+  renderRecommendations(state.accountList, usageMap, {
+    primaryRecommendation: highlights.primaryRecommendation,
+    secondaryRecommendation: highlights.secondaryRecommendation,
+  });
 }
 
 function canParticipateInRouting(level) {
@@ -169,20 +174,22 @@ function pickCurrentAccount(accounts, usageMap, requestLogs, manualPreferredAcco
   return accountList[0];
 }
 
-function renderCurrentAccount(accounts, usageMap, requestLogs, manualPreferredAccountId) {
+function renderCurrentAccount(accounts, usageMap, requestLogs, manualPreferredAccountId, highlight) {
   if (!dom.currentAccountCard) return;
   dom.currentAccountCard.innerHTML = "";
-  if (!accounts.length) {
+  if (!accounts.length && !highlight) {
     const empty = document.createElement("div");
     empty.className = "hint";
     empty.textContent = "暂无账号";
     dom.currentAccountCard.appendChild(empty);
     return;
   }
-  const account = pickCurrentAccount(accounts, usageMap, requestLogs, manualPreferredAccountId);
+  const account = highlight || pickCurrentAccount(accounts, usageMap, requestLogs, manualPreferredAccountId);
   if (!account) return;
-  const usage = usageMap.get(account.id);
-  const status = calcAvailability(usage, account);
+  const usage = highlight?.usage || usageMap.get(account.id);
+  const status = highlight
+    ? { text: highlight.statusText || "未知", level: highlight.statusLevel || "unknown" }
+    : calcAvailability(usage, account);
 
   const header = document.createElement("div");
   header.className = "panel-header";

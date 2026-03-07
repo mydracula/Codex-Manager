@@ -434,6 +434,43 @@ fn rpc_usage_list_empty() {
 }
 
 #[test]
+fn rpc_account_stats_empty() {
+    let _ctx = RpcTestContext::new("rpc-account-stats");
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+
+    let req = JsonRpcRequest {
+        id: 70,
+        method: "account/stats".to_string(),
+        params: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("result");
+    assert_eq!(result.get("total").and_then(|value| value.as_i64()), Some(0));
+    assert_eq!(result.get("okCount").and_then(|value| value.as_i64()), Some(0));
+    assert_eq!(result.get("unavailableCount").and_then(|value| value.as_i64()), Some(0));
+    assert_eq!(result.get("lowCount").and_then(|value| value.as_i64()), Some(0));
+}
+
+#[test]
+fn rpc_account_dashboard_highlights_empty() {
+    let _ctx = RpcTestContext::new("rpc-account-dashboard-highlights");
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+
+    let req = JsonRpcRequest {
+        id: 71,
+        method: "account/dashboardHighlights".to_string(),
+        params: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("result");
+    assert!(result.get("current").is_some());
+    assert!(result.get("primaryRecommendation").is_some());
+    assert!(result.get("secondaryRecommendation").is_some());
+}
+
+#[test]
 fn rpc_rejects_missing_token() {
     let _ctx = RpcTestContext::new("rpc-missing-token");
     let server = codexmanager_service::start_one_shot_server().expect("start server");

@@ -1,7 +1,7 @@
 import { dom } from "../ui/dom.js";
 import { calcAvailability, remainingPercent } from "../utils/format.js";
 
-export function renderRecommendations(accounts, usageMap) {
+export function renderRecommendations(accounts, usageMap, highlights = {}) {
   if (!dom.recommendations) return;
   dom.recommendations.innerHTML = "";
   const header = document.createElement("div");
@@ -15,7 +15,9 @@ export function renderRecommendations(accounts, usageMap) {
   header.appendChild(hint);
   dom.recommendations.appendChild(header);
 
-  if (!accounts.length) {
+  const primaryHighlight = highlights?.primaryRecommendation || null;
+  const secondaryHighlight = highlights?.secondaryRecommendation || null;
+  if (!accounts.length && !primaryHighlight && !secondaryHighlight) {
     const empty = document.createElement("div");
     empty.className = "hint";
     empty.textContent = "暂无可推荐账号";
@@ -27,12 +29,16 @@ export function renderRecommendations(accounts, usageMap) {
   list.className = "mini-usage";
 
   const { primaryPick, secondaryPick } = pickBestRecommendations(accounts, usageMap);
-  list.appendChild(
-    renderRecommendationItem("用于 5小时", primaryPick?.account, primaryPick?.remain),
-  );
-  list.appendChild(
-    renderRecommendationItem("用于 7天", secondaryPick?.account, secondaryPick?.remain),
-  );
+  const primaryAccount = primaryHighlight || primaryPick?.account || null;
+  const primaryRemain = primaryHighlight
+    ? remainingPercent(primaryHighlight?.usage?.usedPercent)
+    : primaryPick?.remain;
+  const secondaryAccount = secondaryHighlight || secondaryPick?.account || null;
+  const secondaryRemain = secondaryHighlight
+    ? remainingPercent(secondaryHighlight?.usage?.secondaryUsedPercent)
+    : secondaryPick?.remain;
+  list.appendChild(renderRecommendationItem("用于 5小时", primaryAccount, primaryRemain));
+  list.appendChild(renderRecommendationItem("用于 7天", secondaryAccount, secondaryRemain));
 
   dom.recommendations.appendChild(list);
 }

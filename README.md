@@ -277,11 +277,11 @@ pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.5
 | `CODEXMANAGER_ALLOW_NON_LOOPBACK_LOGIN_ADDR` | `false` | 是否允许非 loopback 回调地址。仅 `1/true/TRUE/yes/YES` 视为开启。 |
 | `CODEXMANAGER_USAGE_BASE_URL` | `https://chatgpt.com` | 用量接口 base URL。 |
 | `CODEXMANAGER_DISABLE_POLLING` | 未设置（即开启轮询） | 兼容旧开关：只要变量存在（值可为空）就禁用后台用量轮询线程。 |
-| `CODEXMANAGER_USAGE_POLLING_ENABLED` | `true` | 用量轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。与 `CODEXMANAGER_DISABLE_POLLING` 同时存在时，以该值为准。 |
+| `CODEXMANAGER_USAGE_POLLING_ENABLED` | `false` | 用量轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。与 `CODEXMANAGER_DISABLE_POLLING` 同时存在时，以该值为准。默认关闭以降低大账号规模下的后台压力。 |
 | `CODEXMANAGER_USAGE_POLL_INTERVAL_SECS` | `600` | 用量轮询间隔（秒），最小 `30`。非法值回退默认。 |
-| `CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED` | `true` | 网关保活轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。 |
+| `CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED` | `false` | 网关保活轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。默认关闭以减少常驻探活开销。 |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS` | `180` | Gateway keepalive 间隔（秒），最小 `30`。 |
-| `CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED` | `true` | 令牌刷新轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。 |
+| `CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED` | `false` | 令牌刷新轮询总开关（`1/true/on/yes` 开启，`0/false/off/no` 关闭）。默认关闭，按需再启用。 |
 | `CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS` | `60` | 令牌刷新轮询间隔（秒），最小 `10`。 |
 | `CODEXMANAGER_UPSTREAM_BASE_URL` | `https://chatgpt.com/backend-api/codex` | 主上游地址。若填 `https://chatgpt.com`/`https://chat.openai.com` 会自动归一化到 backend-api/codex。 |
 | `CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL` | 自动推断 | 明确指定 fallback 上游。若未设置且主上游是 ChatGPT backend，则默认 fallback 到 `https://api.openai.com/v1`。 |
@@ -298,7 +298,7 @@ pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.5
 | `CODEXMANAGER_TRACE_BODY_PREVIEW_MAX_BYTES` | `0` | Trace body 预览最大字节数。`0` 表示关闭 body 预览。 |
 | `CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES` | `16777216` | 前置代理允许的请求体最大字节数（默认 16 MiB）。 |
 | `CODEXMANAGER_HTTP_WORKER_FACTOR` | `4` | backend worker 数量系数，worker = `max(cpu * factor, worker_min)`（运行中修改需重启 service 生效）。 |
-| `CODEXMANAGER_HTTP_WORKER_MIN` | `8` | backend worker 最小值（运行中修改需重启 service 生效）。 |
+| `CODEXMANAGER_HTTP_WORKER_MIN` | `2` | backend worker 最小值（运行中修改需重启 service 生效）。 |
 | `CODEXMANAGER_HTTP_QUEUE_FACTOR` | `4` | backend 请求队列系数，queue = `max(worker * factor, queue_min)`。 |
 | `CODEXMANAGER_HTTP_QUEUE_MIN` | `32` | backend 请求队列最小值。 |
 
@@ -308,14 +308,14 @@ pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.5
 | `CODEXMANAGER_ACCOUNT_IMPORT_BATCH_SIZE` | `200` | 账号导入分批大小（用于一次导入大量 auth.json）。 |
 | `CODEXMANAGER_TRACE_QUEUE_CAPACITY` | `2048` | gateway trace 异步写队列容量（过小可能丢 trace；过大可能占内存）。 |
 | `CODEXMANAGER_HTTP_STREAM_WORKER_FACTOR` | `1` | backend stream worker 数量系数（SSE 等长连接请求，运行中修改需重启 service 生效）。 |
-| `CODEXMANAGER_HTTP_STREAM_WORKER_MIN` | `2` | backend stream worker 最小值（运行中修改需重启 service 生效）。 |
+| `CODEXMANAGER_HTTP_STREAM_WORKER_MIN` | `1` | backend stream worker 最小值（运行中修改需重启 service 生效）。 |
 | `CODEXMANAGER_HTTP_STREAM_QUEUE_FACTOR` | `2` | backend stream 队列系数。 |
 | `CODEXMANAGER_HTTP_STREAM_QUEUE_MIN` | `16` | backend stream 队列最小值。 |
 | `CODEXMANAGER_POLL_JITTER_SECS` | 未设置 | 通用轮询 jitter（秒），可被各模块各自的 jitter 覆盖。 |
 | `CODEXMANAGER_POLL_FAILURE_BACKOFF_MAX_SECS` | 未设置 | 通用失败退避上限（秒），可被各模块各自的 backoff 覆盖。 |
 | `CODEXMANAGER_USAGE_POLL_JITTER_SECS` | `5` | 用量轮询 jitter（秒）。 |
 | `CODEXMANAGER_USAGE_POLL_FAILURE_BACKOFF_MAX_SECS` | `1800` | 用量轮询失败退避上限（秒）。 |
-| `CODEXMANAGER_USAGE_REFRESH_WORKERS` | `4` | 用量刷新 worker 数（可在设置页配置；运行中修改需重启 service 生效）。 |
+| `CODEXMANAGER_USAGE_REFRESH_WORKERS` | `1` | 用量刷新 worker 数（可在设置页配置；运行中修改需重启 service 生效）。默认收紧为 1 以降低内存/CPU 峰值。 |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_JITTER_SECS` | `5` | keepalive jitter（秒）。 |
 | `CODEXMANAGER_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS` | `900` | keepalive 失败退避上限（秒）。 |
 | `CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS` | `60` | 用量刷新失败事件去重窗口（秒），避免瞬时抖动刷爆事件表。 |
