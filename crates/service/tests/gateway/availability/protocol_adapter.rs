@@ -105,6 +105,41 @@ fn anthropic_tools_request_maps_to_openai_tools_and_tool_choice() {
 }
 
 #[test]
+fn anthropic_tools_request_respects_disable_parallel_tool_use() {
+    let body = serde_json::json!({
+        "model": "claude-sonnet-4",
+        "messages": [
+            { "role": "user", "content": "请读取README" }
+        ],
+        "tools": [
+            {
+                "name": "read_file",
+                "description": "读取文件",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    },
+                    "required": ["path"]
+                }
+            }
+        ],
+        "tool_choice": {
+            "type": "auto",
+            "disable_parallel_tool_use": true
+        },
+        "stream": false
+    });
+    let body = serde_json::to_vec(&body).expect("serialize request");
+
+    let adapted = adapt_request_for_protocol("anthropic_native", "/v1/messages", body)
+        .expect("adapt request");
+    let value: serde_json::Value = serde_json::from_slice(&adapted.body).expect("adapted json");
+    assert_eq!(value["tool_choice"], "auto");
+    assert_eq!(value["parallel_tool_calls"], false);
+}
+
+#[test]
 fn anthropic_tools_request_accepts_type_only_tool_definition() {
     let body = serde_json::json!({
         "model": "claude-sonnet-4",
@@ -234,6 +269,11 @@ fn anthropic_json_response_maps_from_openai_responses_shape() {
     assert_eq!(value["role"], "assistant");
     assert_eq!(value["usage"]["input_tokens"], 8);
     assert_eq!(value["usage"]["output_tokens"], 5);
+    assert_eq!(
+        value["content"].as_array().map(|items| items.len()),
+        Some(1)
+    );
+    assert_eq!(value["content"][0]["text"], "已完成");
 }
 
 #[test]
@@ -414,6 +454,45 @@ fn anthropic_sse_response_maps_openai_responses_completed_event() {
     assert!(text.contains("event: message_start"));
     assert!(text.contains("event: content_block_delta"));
     assert!(text.contains("event: message_stop"));
+    assert_eq!(text.matches("\"text\":\"你好\"").count(), 1);
+}
+
+#[test]
+fn anthropic_json_response_deduplicates_consecutive_identical_text_blocks() {
+    let upstream = serde_json::json!({
+        "id": "resp_dup_1",
+        "model": "gpt-5.3-codex",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    { "type": "output_text", "text": "重复计划" },
+                    { "type": "output_text", "text": "重复计划" }
+                ]
+            }
+        ],
+        "usage": {
+            "input_tokens": 3,
+            "output_tokens": 2
+        }
+    });
+    let upstream = serde_json::to_vec(&upstream).expect("serialize upstream");
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &upstream,
+    )
+    .expect("adapt response");
+    assert_eq!(content_type, "application/json");
+
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("anthropic response");
+    assert_eq!(
+        value["content"].as_array().map(|items| items.len()),
+        Some(1)
+    );
+    assert_eq!(value["content"][0]["text"], "重复计划");
 }
 
 #[test]

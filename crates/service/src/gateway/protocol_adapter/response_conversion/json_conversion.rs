@@ -175,15 +175,7 @@ fn build_anthropic_message_from_responses(value: &Value) -> Result<Value, String
 
     let mut content_blocks = Vec::new();
     let mut has_tool_use = false;
-
-    if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
-        if !output_text.is_empty() {
-            content_blocks.push(json!({
-                "type": "text",
-                "text": output_text,
-            }));
-        }
-    }
+    let mut saw_message_text = false;
 
     if let Some(output_items) = value.get("output").and_then(Value::as_array) {
         for output_item in output_items {
@@ -208,10 +200,9 @@ fn build_anthropic_message_from_responses(value: &Value) -> Result<Value, String
                                 .unwrap_or_default();
                             if block_type == "output_text" || block_type == "text" {
                                 if let Some(text) = block_obj.get("text").and_then(Value::as_str) {
-                                    content_blocks.push(json!({
-                                        "type": "text",
-                                        "text": text,
-                                    }));
+                                    if push_anthropic_text_block(&mut content_blocks, text) {
+                                        saw_message_text = true;
+                                    }
                                 }
                             }
                         }
@@ -243,6 +234,12 @@ fn build_anthropic_message_from_responses(value: &Value) -> Result<Value, String
                 }
                 _ => {}
             }
+        }
+    }
+
+    if !saw_message_text {
+        if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
+            push_anthropic_text_block(&mut content_blocks, output_text);
         }
     }
 
@@ -293,6 +290,30 @@ fn build_anthropic_message_from_responses(value: &Value) -> Result<Value, String
             "output_tokens": output_tokens,
         }
     }))
+}
+
+fn push_anthropic_text_block(content_blocks: &mut Vec<Value>, text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if content_blocks
+        .last()
+        .and_then(Value::as_object)
+        .is_some_and(|last| {
+            last.get("type").and_then(Value::as_str) == Some("text")
+                && last.get("text").and_then(Value::as_str) == Some(trimmed)
+        })
+    {
+        return false;
+    }
+
+    content_blocks.push(json!({
+        "type": "text",
+        "text": trimmed,
+    }));
+    true
 }
 
 fn extract_openai_text_content(value: &Value) -> Result<String, String> {

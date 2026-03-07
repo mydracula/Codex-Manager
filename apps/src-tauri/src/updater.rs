@@ -1148,8 +1148,8 @@ mod tests {
 
     #[test]
     fn prerelease_channel_defaults_follow_current_version() {
-        let stable = Version::parse("0.1.5").expect("stable version");
-        let beta = Version::parse("0.1.6-beta.1").expect("beta version");
+        let stable = Version::parse("0.1.6").expect("stable version");
+        let beta = Version::parse("0.1.7-beta.1").expect("beta version");
 
         assert!(!should_include_prerelease_updates_with_override(
             &stable, None
@@ -1167,7 +1167,7 @@ mod tests {
 
     #[test]
     fn portable_asset_names_include_current_workflow_artifact() {
-        let names = portable_asset_names_for_platform("0.1.5");
+        let names = portable_asset_names_for_platform("0.1.6");
         if cfg!(target_os = "windows") {
             assert!(names.iter().any(|name| name == "CodexManager-portable.exe"));
         } else if cfg!(target_os = "linux") {
@@ -1185,7 +1185,7 @@ mod tests {
     fn release_selection_respects_channel() {
         let releases = vec![
             GitHubRelease {
-                tag_name: "v0.1.6-beta.1".to_string(),
+                tag_name: "v0.1.7-beta.1".to_string(),
                 name: None,
                 published_at: None,
                 draft: false,
@@ -1193,7 +1193,7 @@ mod tests {
                 assets: vec![],
             },
             GitHubRelease {
-                tag_name: "v0.1.5".to_string(),
+                tag_name: "v0.1.6".to_string(),
                 name: None,
                 published_at: None,
                 draft: false,
@@ -1205,7 +1205,7 @@ mod tests {
         let stable = select_release_for_channel(releases.clone(), false).expect("stable release");
         let prerelease = select_release_for_channel(releases, true).expect("prerelease release");
 
-        assert_eq!(stable.tag_name, "v0.1.5");
-        assert_eq!(prerelease.tag_name, "v0.1.6-beta.1");
+        assert_eq!(stable.tag_name, "v0.1.6");
+        assert_eq!(prerelease.tag_name, "v0.1.7-beta.1");
     }
 }

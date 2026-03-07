@@ -13,7 +13,12 @@
 本地桌面端 + 服务进程的 Codex 账号池管理器，用于统一管理账号、用量与平台 Key，并提供本地网关能力。
 
 ## 最近变更
-### 2026-03-06（v0.1.5，最新）
+### 2026-03-07（v0.1.6，最新）
+- 修复 `release-all.yml` 在手动关闭 `run_verify` 时仍强依赖预构建前端工件的问题；现在会在各平台任务内自动回退到本地 `pnpm install + build`，避免因缺少 `codexmanager-frontend-dist` 而直接失败。
+- 工作流与产物收敛继续对齐：Windows 桌面端仅保留 `CodexManager-portable.exe` 便携版，不再额外生成 `CodexManager-windows-portable.zip`。
+- 吸收并整合近期主线更新：完善 SOCKS5 上游代理支持与归一化，同时补充设置页代理协议提示文案。
+
+### 2026-03-06（v0.1.5）
 - 网关协议适配进一步对齐 Codex CLI：`/v1/chat/completions` 与 `/v1/responses` 两条链路统一收敛到 Codex `responses` 语义，上游流式/非流式行为与官方更接近，兼容 Cherry Studio 等客户端的 OpenAI 兼容调用。
 - 修复 `tool_calls` / `tools` 相关回归：补齐 chat 聚合路径中的工具调用保留、工具名缩短与响应还原链路，避免工具调用在 OpenAI 兼容返回、流式增量和适配转换中丢失或名称错乱。
 - 完善 OpenClaw / Anthropic 兼容返回适配，确保工具调用、SSE 增量和非流式 JSON 响应都能按兼容格式正确还原。
@@ -195,8 +200,8 @@ xattr -dr com.apple.quarantine /Applications/CodexManager.app
 - Linux：`CodexManager-service-linux-x86_64.zip`
 
 ### 发布类型
-- `tag` 包含 `-`（例如 `v0.1.5-beta.1`）会发布为 **pre-release**
-- 不包含 `-`（例如 `v0.1.5`）会发布为正式版
+- `tag` 包含 `-`（例如 `v0.1.6-beta.1`）会发布为 **pre-release**
+- 不包含 `-`（例如 `v0.1.6`）会发布为正式版
 - GitHub 仍会自动附带 `Source code (zip/tar.gz)`
 
 ## 脚本说明
@@ -242,7 +247,7 @@ pwsh -NoLogo -NoProfile -File scripts/rebuild.ps1 `
 用于一次性更新发版版本号，避免手改多个文件。
 
 ```powershell
-pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.5
+pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.6
 ```
 
 会同步更新：

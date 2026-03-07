@@ -175,12 +175,14 @@ jobs:
             apps/src-tauri -> target
 
       - name: Download prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: codexmanager-frontend-dist
           path: .
 
       - name: Restore prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         shell: pwsh
         run: |
           if (Test-Path "apps/dist") {
@@ -190,6 +192,18 @@ jobs:
           if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
             throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
           }
+
+      - name: Install frontend dependencies (fallback local build)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend locally (fallback)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        shell: pwsh
+        run: pnpm run build
 
       - name: Disable redundant frontend rebuild for Tauri bundle
         shell: pwsh
@@ -243,13 +257,6 @@ jobs:
           Copy-Item -Force $source $portableBinary
           Write-Host "portable binary: $portableBinary"
 
-          $legacyZip = Join-Path $portableDir "CodexManager-windows-portable.zip"
-          if (Test-Path $legacyZip) {
-            Remove-Item -Force $legacyZip
-          }
-          Compress-Archive -Path $portableBinary -DestinationPath $legacyZip
-          Write-Host "legacy portable zip: $legacyZip"
-
       - name: Build service binaries
         shell: pwsh
         run: |
@@ -298,7 +305,6 @@ jobs:
           path: |
             apps/src-tauri/target/release/bundle/**/*.exe
             apps/src-tauri/target/release/portable/*.exe
-            apps/src-tauri/target/release/portable/*.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -388,12 +394,14 @@ jobs:
             apps/src-tauri -> target
 
       - name: Download prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: codexmanager-frontend-dist
           path: .
 
       - name: Restore prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         shell: pwsh
         run: |
           if (Test-Path "apps/dist") {
@@ -403,6 +411,18 @@ jobs:
           if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
             throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
           }
+
+      - name: Install frontend dependencies (fallback local build)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend locally (fallback)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        shell: pwsh
+        run: pnpm run build
 
       - name: Disable redundant frontend rebuild for Tauri bundle
         shell: pwsh
@@ -617,12 +637,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev zip
 
       - name: Download prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: codexmanager-frontend-dist
           path: .
 
       - name: Restore prebuilt frontend dist
+        if: ${{ needs.verify.result == 'success' }}
         shell: pwsh
         run: |
           if (Test-Path "apps/dist") {
@@ -632,6 +654,16 @@ jobs:
           if (-not (Test-Path "apps/dist/index.html" -PathType Leaf)) {
             throw "prebuilt frontend dist restore failed: apps/dist/index.html not found"
           }
+
+      - name: Install frontend dependencies (fallback local build)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend locally (fallback)
+        if: ${{ needs.verify.result == 'skipped' }}
+        working-directory: apps
+        run: pnpm run build
 
       - name: Disable redundant frontend rebuild for Tauri bundle
         shell: pwsh

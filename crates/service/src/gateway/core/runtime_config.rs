@@ -314,9 +314,20 @@ pub(super) fn reload_from_env() {
     *cached_issuer = issuer;
 
     let proxy_url = env_non_empty(ENV_UPSTREAM_PROXY_URL);
+    let converted_proxy = match normalize_upstream_proxy_url(proxy_url.as_deref()) {
+        Ok(normalized) => normalized,
+        Err(err) => {
+            log::warn!(
+                "event=gateway_invalid_upstream_proxy_url source=env var={} err={}",
+                ENV_UPSTREAM_PROXY_URL,
+                err
+            );
+            None
+        }
+    };
     let mut cached_proxy_url =
         crate::lock_utils::write_recover(upstream_proxy_url_cell(), "upstream_proxy_url");
-    *cached_proxy_url = proxy_url;
+    *cached_proxy_url = converted_proxy;
     drop(cached_proxy_url);
 
     refresh_upstream_clients_from_runtime_config();
@@ -433,13 +444,29 @@ fn env_bool_or(name: &str, default: bool) -> bool {
     }
 }
 
+fn rewrite_socks_proxy_url(proxy_url: &str) -> String {
+    let mut normalized = proxy_url.trim().to_string();
+    if let Some(rest) = normalized.strip_prefix("http://socks") {
+        normalized = format!("socks{rest}");
+    } else if let Some(rest) = normalized.strip_prefix("https://socks") {
+        normalized = format!("socks{rest}");
+    }
+    if normalized.starts_with("socks5://") {
+        normalized = normalized.replacen("socks5://", "socks5h://", 1);
+    } else if normalized.starts_with("socks://") {
+        normalized = normalized.replacen("socks://", "socks5h://", 1);
+    }
+    normalized
+}
+
 fn normalize_upstream_proxy_url(proxy_url: Option<&str>) -> Result<Option<String>, String> {
-    let normalized = proxy_url
+    let mut normalized = proxy_url
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    if let Some(value) = normalized.as_deref() {
-        Proxy::all(value).map_err(|err| format!("invalid proxy url: {err}"))?;
+    if let Some(value) = normalized.as_mut() {
+        *value = rewrite_socks_proxy_url(value);
+        Proxy::all(value.as_str()).map_err(|err| format!("invalid proxy url: {err}"))?;
     }
     Ok(normalized)
 }
@@ -452,7 +479,7 @@ fn parse_proxy_list_env() -> Vec<String> {
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .take(MAX_UPSTREAM_PROXY_POOL_SIZE)
-        .map(str::to_string)
+        .map(rewrite_socks_proxy_url)
         .collect()
 }
 

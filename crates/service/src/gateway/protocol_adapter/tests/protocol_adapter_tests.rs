@@ -970,6 +970,359 @@ fn anthropic_messages_are_the_only_path_adapted_to_responses() {
 }
 
 #[test]
+fn anthropic_messages_map_text_and_base64_image_to_responses_input() {
+    let body = serde_json::json!({
+        "model": "claude-3-5-sonnet",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "阅读一下这个图片里面是什么"
+                },
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "ZmFrZV9pbWFnZQ=="
+                    }
+                }
+            ]
+        }]
+    });
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(adapted.path, "/v1/responses");
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("role"))
+            .and_then(serde_json::Value::as_str),
+        Some("user")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|part| part.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("input_text")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(serde_json::Value::as_str),
+        Some("阅读一下这个图片里面是什么")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(1))
+            .and_then(|part| part.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("input_image")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(1))
+            .and_then(|part| part.get("image_url"))
+            .and_then(serde_json::Value::as_str),
+        Some("data:image/png;base64,ZmFrZV9pbWFnZQ==")
+    );
+}
+
+#[test]
+fn anthropic_messages_map_url_image_to_responses_input() {
+    let body = serde_json::json!({
+        "model": "claude-3-5-sonnet",
+        "messages": [{
+            "role": "user",
+            "content": [{
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": "https://example.com/screenshot.png"
+                }
+            }]
+        }]
+    });
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(0))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|part| part.get("image_url"))
+            .and_then(serde_json::Value::as_str),
+        Some("https://example.com/screenshot.png")
+    );
+}
+
+#[test]
+fn anthropic_assistant_tool_use_preserves_text_order_in_responses_input() {
+    let body = serde_json::json!({
+        "model": "claude-3-5-sonnet",
+        "messages": [
+            {
+                "role": "user",
+                "content": "继续上一轮"
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "先读取 README。"
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_readme_1",
+                        "name": "read_file",
+                        "input": {
+                            "path": "README.md"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "读取后继续总结。"
+                    }
+                ]
+            }
+        ]
+    });
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("message")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("role"))
+            .and_then(serde_json::Value::as_str),
+        Some("assistant")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(serde_json::Value::as_str),
+        Some("先读取 README。")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(2))
+            .and_then(|item| item.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("function_call")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(2))
+            .and_then(|item| item.get("call_id"))
+            .and_then(serde_json::Value::as_str),
+        Some("toolu_readme_1")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(2))
+            .and_then(|item| item.get("name"))
+            .and_then(serde_json::Value::as_str),
+        Some("read_file")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(2))
+            .and_then(|item| item.get("arguments"))
+            .and_then(serde_json::Value::as_str),
+        Some("{\"path\":\"README.md\"}")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(3))
+            .and_then(|item| item.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("message")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(3))
+            .and_then(|item| item.get("role"))
+            .and_then(serde_json::Value::as_str),
+        Some("assistant")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(3))
+            .and_then(|item| item.get("content"))
+            .and_then(|content| content.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(serde_json::Value::as_str),
+        Some("读取后继续总结。")
+    );
+}
+
+#[test]
+fn anthropic_tool_result_with_image_maps_to_function_call_output_items() {
+    let body = serde_json::json!({
+        "model": "claude-3-5-sonnet",
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_image_1",
+                        "name": "inspect_image",
+                        "input": {
+                            "path": "screen.png"
+                        }
+                    }
+                ]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_image_1",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "这是截图。"
+                            },
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "ZmFrZV9pbWFnZQ=="
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    });
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("function_call_output")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("call_id"))
+            .and_then(serde_json::Value::as_str),
+        Some("toolu_image_1")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("output"))
+            .and_then(|output| output.get(0))
+            .and_then(|part| part.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("input_text")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("output"))
+            .and_then(|output| output.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(serde_json::Value::as_str),
+        Some("这是截图。")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("output"))
+            .and_then(|output| output.get(1))
+            .and_then(|part| part.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("input_image")
+    );
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|input| input.get(1))
+            .and_then(|item| item.get("output"))
+            .and_then(|output| output.get(1))
+            .and_then(|part| part.get("image_url"))
+            .and_then(serde_json::Value::as_str),
+        Some("data:image/png;base64,ZmFrZV9pbWFnZQ==")
+    );
+}
+
+#[test]
 fn anthropic_chat_completions_still_passthrough() {
     let body =
         br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hello"}]}"#.to_vec();

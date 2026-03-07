@@ -657,7 +657,10 @@ pub(super) fn convert_anthropic_messages_request(body: &[u8]) -> Result<(Vec<u8>
     // 说明：即使 Claude 请求 stream=false，也统一以 stream=true 请求 upstream，
     // 再在网关侧将 SSE 聚合为 Anthropic JSON，降低 upstream challenge 命中率。
     out.insert("stream".to_string(), Value::Bool(true));
-    out.insert("parallel_tool_calls".to_string(), Value::Bool(true));
+    out.insert(
+        "parallel_tool_calls".to_string(),
+        Value::Bool(resolve_anthropic_parallel_tool_calls(obj)),
+    );
     out.insert("store".to_string(), Value::Bool(false));
     out.insert(
         "include".to_string(),
@@ -700,8 +703,7 @@ fn append_assistant_messages(messages: &mut Vec<Value>, content: &Value) -> Resu
         return Err("unsupported assistant content".to_string());
     };
 
-    let mut text_content = String::new();
-    let mut tool_calls = Vec::new();
+    let mut content_parts = Vec::new();
 
     for block in blocks {
         let Some(block_obj) = block.as_object() else {
@@ -714,7 +716,12 @@ fn append_assistant_messages(messages: &mut Vec<Value>, content: &Value) -> Resu
         match block_type {
             "text" => {
                 if let Some(text) = block_obj.get("text").and_then(Value::as_str) {
-                    text_content.push_str(text);
+                    if !text.trim().is_empty() {
+                        content_parts.push(json!({
+                            "type": "text",
+                            "text": text,
+                        }));
+                    }
                 }
             }
             "tool_use" => {
@@ -722,7 +729,7 @@ fn append_assistant_messages(messages: &mut Vec<Value>, content: &Value) -> Resu
                     .get("id")
                     .and_then(Value::as_str)
                     .map(str::to_string)
-                    .unwrap_or_else(|| format!("toolu_{}", tool_calls.len()));
+                    .unwrap_or_else(|| format!("toolu_{}", content_parts.len()));
                 let Some(name) = block_obj
                     .get("name")
                     .and_then(Value::as_str)
@@ -730,29 +737,24 @@ fn append_assistant_messages(messages: &mut Vec<Value>, content: &Value) -> Resu
                 else {
                     continue;
                 };
-                let input = block_obj.get("input").cloned().unwrap_or_else(|| json!({}));
-                let arguments = serde_json::to_string(&input)
-                    .map_err(|err| format!("serialize tool_use input failed: {err}"))?;
-                tool_calls.push(json!({
+                content_parts.push(json!({
+                    "type": "tool_use",
                     "id": id,
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "arguments": arguments,
-                    }
+                    "name": name,
+                    "input": block_obj.get("input").cloned().unwrap_or_else(|| json!({})),
                 }));
             }
             _ => continue,
         }
     }
 
-    let mut message_obj = serde_json::Map::new();
-    message_obj.insert("role".to_string(), Value::String("assistant".to_string()));
-    message_obj.insert("content".to_string(), Value::String(text_content));
-    if !tool_calls.is_empty() {
-        message_obj.insert("tool_calls".to_string(), Value::Array(tool_calls));
+    if content_parts.is_empty() {
+        return Ok(());
     }
-    messages.push(Value::Object(message_obj));
+    messages.push(json!({
+        "role": "assistant",
+        "content": content_parts,
+    }));
     Ok(())
 }
 
@@ -775,7 +777,7 @@ fn append_user_messages(messages: &mut Vec<Value>, content: &Value) -> Result<()
         return Err("unsupported user content".to_string());
     };
 
-    let mut pending_text = String::new();
+    let mut pending_parts = Vec::new();
     for block in blocks {
         let Some(block_obj) = block.as_object() else {
             return Err("invalid user content block".to_string());
@@ -787,11 +789,21 @@ fn append_user_messages(messages: &mut Vec<Value>, content: &Value) -> Result<()
         match block_type {
             "text" => {
                 if let Some(text) = block_obj.get("text").and_then(Value::as_str) {
-                    pending_text.push_str(text);
+                    if !text.trim().is_empty() {
+                        pending_parts.push(json!({
+                            "type": "input_text",
+                            "text": text,
+                        }));
+                    }
+                }
+            }
+            "image" => {
+                if let Some(image_item) = map_anthropic_image_block_to_responses_item(block_obj) {
+                    pending_parts.push(image_item);
                 }
             }
             "tool_result" => {
-                flush_user_text(messages, &mut pending_text);
+                flush_user_content_parts(messages, &mut pending_parts);
                 let tool_use_id = block_obj
                     .get("tool_use_id")
                     .and_then(Value::as_str)
@@ -800,13 +812,13 @@ fn append_user_messages(messages: &mut Vec<Value>, content: &Value) -> Result<()
                 if tool_use_id.is_empty() {
                     continue;
                 }
-                let mut tool_content = extract_tool_result_content(block_obj.get("content"))?;
+                let mut tool_content = extract_tool_result_output(block_obj.get("content"))?;
                 if block_obj
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                 {
-                    tool_content = format!("[tool_error] {tool_content}");
+                    tool_content = prefix_tool_error_output(tool_content);
                 }
                 messages.push(json!({
                     "role": "tool",
@@ -817,7 +829,7 @@ fn append_user_messages(messages: &mut Vec<Value>, content: &Value) -> Result<()
             _ => continue,
         }
     }
-    flush_user_text(messages, &mut pending_text);
+    flush_user_content_parts(messages, &mut pending_parts);
     Ok(())
 }
 
@@ -831,7 +843,7 @@ fn append_tool_role_message(
         .or_else(|| message_obj.get("tool_use_id"))
         .and_then(Value::as_str)
         .ok_or_else(|| "tool role message missing tool_call_id".to_string())?;
-    let tool_content = extract_tool_result_content(Some(content))?;
+    let tool_content = extract_tool_result_output(Some(content))?;
     messages.push(json!({
         "role": "tool",
         "tool_call_id": tool_call_id,
@@ -840,16 +852,15 @@ fn append_tool_role_message(
     Ok(())
 }
 
-fn flush_user_text(messages: &mut Vec<Value>, pending_text: &mut String) {
-    if pending_text.trim().is_empty() {
-        pending_text.clear();
+fn flush_user_content_parts(messages: &mut Vec<Value>, pending_parts: &mut Vec<Value>) {
+    if pending_parts.is_empty() {
         return;
     }
     messages.push(json!({
         "role": "user",
-        "content": pending_text.clone(),
+        "content": pending_parts.clone(),
     }));
-    pending_text.clear();
+    pending_parts.clear();
 }
 
 fn convert_chat_messages_to_responses_input(
@@ -875,27 +886,24 @@ fn convert_chat_messages_to_responses_input(
                 }
             }
             "user" => {
-                if let Some(content) = message_obj.get("content").and_then(Value::as_str) {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() {
+                if let Some(content) = message_obj.get("content") {
+                    let content_items = convert_user_message_content_to_responses_items(content);
+                    if !content_items.is_empty() {
                         input_items.push(json!({
                             "type": "message",
                             "role": "user",
-                            "content": [{ "type": "input_text", "text": trimmed }]
+                            "content": content_items
                         }));
                     }
                 }
             }
             "assistant" => {
-                if let Some(content) = message_obj.get("content").and_then(Value::as_str) {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() {
-                        input_items.push(json!({
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{ "type": "output_text", "text": trimmed }]
-                        }));
-                    }
+                if let Some(content) = message_obj.get("content") {
+                    append_assistant_content_to_responses_input(
+                        &mut input_items,
+                        content,
+                        tool_name_map,
+                    )?;
                 }
                 if let Some(tool_calls) = message_obj.get("tool_calls").and_then(Value::as_array) {
                     for (index, tool_call) in tool_calls.iter().enumerate() {
@@ -946,11 +954,8 @@ fn convert_chat_messages_to_responses_input(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .ok_or_else(|| "tool role message missing tool_call_id".to_string())?;
-                let output = message_obj
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
+                let output =
+                    convert_tool_message_content_to_responses_output(message_obj.get("content"))?;
                 input_items.push(json!({
                     "type": "function_call_output",
                     "call_id": call_id,
@@ -969,52 +974,358 @@ fn convert_chat_messages_to_responses_input(
     Ok((instructions, input_items))
 }
 
-fn extract_tool_result_content(value: Option<&Value>) -> Result<String, String> {
-    let Some(value) = value else {
-        return Ok(String::new());
-    };
-    if value.is_null() {
-        return Ok(String::new());
-    }
-    if let Some(text) = value.as_str() {
-        return Ok(text.to_string());
-    }
-    if let Some(array) = value.as_array() {
-        let mut out = String::new();
-        for item in array {
-            if let Some(text) = item.as_str() {
-                out.push_str(text);
-                continue;
-            }
-            if let Some(item_obj) = item.as_object() {
-                let item_type = item_obj
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                if item_type == "text" {
-                    if let Some(text) = item_obj.get("text").and_then(Value::as_str) {
-                        out.push_str(text);
-                        continue;
-                    }
-                }
-            }
-            out.push_str(&serde_json::to_string(item).unwrap_or_else(|_| "".to_string()));
+fn append_assistant_content_to_responses_input(
+    input_items: &mut Vec<Value>,
+    content: &Value,
+    tool_name_map: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    if let Some(text) = content.as_str() {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            input_items.push(json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": trimmed }]
+            }));
         }
-        return Ok(out);
+        return Ok(());
     }
-    if let Some(item_obj) = value.as_object() {
+
+    let items = if let Some(array) = content.as_array() {
+        array.to_vec()
+    } else if content.is_object() {
+        vec![content.clone()]
+    } else if content.is_null() {
+        Vec::new()
+    } else {
+        return Err("unsupported assistant content".to_string());
+    };
+
+    let mut pending_parts = Vec::new();
+    for item in items {
+        let Some(item_obj) = item.as_object() else {
+            continue;
+        };
         let item_type = item_obj
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if item_type == "text" {
-            if let Some(text) = item_obj.get("text").and_then(Value::as_str) {
-                return Ok(text.to_string());
+        match item_type {
+            "text" | "output_text" => {
+                if let Some(text) = item_obj.get("text").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        pending_parts.push(json!({
+                            "type": "output_text",
+                            "text": trimmed,
+                        }));
+                    }
+                }
+            }
+            "tool_use" => {
+                flush_assistant_output_parts(input_items, &mut pending_parts);
+                let Some(function_name) = item_obj
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                let function_name = shorten_openai_tool_name_with_map(function_name, tool_name_map);
+                let call_id = item_obj
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .or_else(|| item_obj.get("call_id").and_then(Value::as_str))
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("call_0");
+                let arguments = serde_json::to_string(
+                    &item_obj.get("input").cloned().unwrap_or_else(|| json!({})),
+                )
+                .map_err(|err| format!("serialize assistant tool_use input failed: {err}"))?;
+                input_items.push(json!({
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": function_name,
+                    "arguments": arguments
+                }));
+            }
+            _ => continue,
+        }
+    }
+    flush_assistant_output_parts(input_items, &mut pending_parts);
+    Ok(())
+}
+
+fn flush_assistant_output_parts(input_items: &mut Vec<Value>, pending_parts: &mut Vec<Value>) {
+    if pending_parts.is_empty() {
+        return;
+    }
+    input_items.push(json!({
+        "type": "message",
+        "role": "assistant",
+        "content": pending_parts.clone(),
+    }));
+    pending_parts.clear();
+}
+
+fn convert_tool_message_content_to_responses_output(
+    value: Option<&Value>,
+) -> Result<Value, String> {
+    let Some(value) = value else {
+        return Ok(Value::String(String::new()));
+    };
+    if value.is_null() {
+        return Ok(Value::String(String::new()));
+    }
+    if let Some(text) = value.as_str() {
+        return Ok(Value::String(text.to_string()));
+    }
+    if let Some(items) = value.as_array() {
+        let mapped_items = items
+            .iter()
+            .filter_map(map_tool_result_content_item_to_responses_output_item)
+            .collect::<Vec<_>>();
+        if mapped_items.is_empty() {
+            return Ok(Value::String(String::new()));
+        }
+        return Ok(Value::Array(mapped_items));
+    }
+    if let Some(item) = map_tool_result_content_item_to_responses_output_item(value) {
+        return Ok(Value::Array(vec![item]));
+    }
+    serde_json::to_string(value)
+        .map(Value::String)
+        .map_err(|err| format!("serialize tool result content failed: {err}"))
+}
+
+fn map_tool_result_content_item_to_responses_output_item(item: &Value) -> Option<Value> {
+    if let Some(text) = item.as_str() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(json!({
+            "type": "input_text",
+            "text": trimmed,
+        }));
+    }
+
+    let obj = item.as_object()?;
+    let item_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
+    match item_type {
+        "text" | "input_text" => obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|text| {
+                json!({
+                    "type": "input_text",
+                    "text": text,
+                })
+            }),
+        "input_image" => {
+            let mut mapped = serde_json::Map::new();
+            mapped.insert("type".to_string(), Value::String("input_image".to_string()));
+            if let Some(image_url) = obj.get("image_url").cloned() {
+                mapped.insert("image_url".to_string(), image_url);
+            } else if let Some(file_id) = obj.get("file_id").cloned() {
+                mapped.insert("file_id".to_string(), file_id);
+            } else {
+                return None;
+            }
+            Some(Value::Object(mapped))
+        }
+        "image" => map_anthropic_image_block_to_responses_item(obj),
+        _ => serde_json::to_string(item).ok().and_then(|text| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(json!({
+                    "type": "input_text",
+                    "text": trimmed,
+                }))
+            }
+        }),
+    }
+}
+
+fn prefix_tool_error_output(output: Value) -> Value {
+    match output {
+        Value::String(text) => Value::String(format!("[tool_error] {text}")),
+        Value::Array(mut items) => {
+            items.insert(
+                0,
+                json!({
+                    "type": "input_text",
+                    "text": "[tool_error]",
+                }),
+            );
+            Value::Array(items)
+        }
+        other => other,
+    }
+}
+
+fn convert_user_message_content_to_responses_items(content: &Value) -> Vec<Value> {
+    match content {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                Vec::new()
+            } else {
+                vec![json!({
+                    "type": "input_text",
+                    "text": trimmed,
+                })]
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .filter_map(map_user_content_item_to_responses_item)
+            .collect(),
+        Value::Null => Vec::new(),
+        other => {
+            let text = serde_json::to_string(other).unwrap_or_default();
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                Vec::new()
+            } else {
+                vec![json!({
+                    "type": "input_text",
+                    "text": trimmed,
+                })]
             }
         }
     }
-    serde_json::to_string(value)
-        .map_err(|err| format!("serialize tool_result content failed: {err}"))
+}
+
+fn map_user_content_item_to_responses_item(item: &Value) -> Option<Value> {
+    if let Some(text) = item.as_str() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(json!({
+            "type": "input_text",
+            "text": trimmed,
+        }));
+    }
+
+    let obj = item.as_object()?;
+    let item_type = obj.get("type").and_then(Value::as_str).unwrap_or_default();
+    match item_type {
+        "text" | "input_text" | "output_text" => obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|text| {
+                json!({
+                    "type": "input_text",
+                    "text": text,
+                })
+            }),
+        "input_image" => {
+            let mut mapped = serde_json::Map::new();
+            mapped.insert("type".to_string(), Value::String("input_image".to_string()));
+            if let Some(image_url) = obj.get("image_url").cloned() {
+                mapped.insert("image_url".to_string(), image_url);
+            } else if let Some(file_id) = obj.get("file_id").cloned() {
+                mapped.insert("file_id".to_string(), file_id);
+            } else {
+                return None;
+            }
+            Some(Value::Object(mapped))
+        }
+        "image_url" => extract_openai_image_url(obj).map(|image_url| {
+            json!({
+                "type": "input_image",
+                "image_url": image_url,
+            })
+        }),
+        _ => None,
+    }
+}
+
+fn extract_openai_image_url(obj: &serde_json::Map<String, Value>) -> Option<String> {
+    if let Some(text) = obj.get("image_url").and_then(Value::as_str) {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    let image_url_obj = obj.get("image_url").and_then(Value::as_object)?;
+    image_url_obj
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn map_anthropic_image_block_to_responses_item(
+    block: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let source = block.get("source")?;
+    let source_obj = source.as_object()?;
+
+    if let Some(image_url) = source_obj
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(json!({
+            "type": "input_image",
+            "image_url": image_url,
+        }));
+    }
+
+    let source_type = source_obj
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if source_type == "base64" || source_obj.contains_key("data") {
+        let media_type = source_obj
+            .get("media_type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("image/png");
+        let data = source_obj
+            .get("data")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        return Some(json!({
+            "type": "input_image",
+            "image_url": format!("data:{media_type};base64,{data}"),
+        }));
+    }
+
+    if let Some(file_id) = source_obj
+        .get("file_id")
+        .or_else(|| source_obj.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(json!({
+            "type": "input_image",
+            "file_id": file_id,
+        }));
+    }
+
+    None
+}
+
+fn extract_tool_result_output(value: Option<&Value>) -> Result<Value, String> {
+    convert_tool_message_content_to_responses_output(value)
 }
 
 fn map_anthropic_tool_definition(value: &Value) -> Option<Value> {
@@ -1073,6 +1384,15 @@ fn map_anthropic_tool_choice(value: &Value) -> Option<Value> {
         }
         _ => None,
     }
+}
+
+fn resolve_anthropic_parallel_tool_calls(source: &serde_json::Map<String, Value>) -> bool {
+    !source
+        .get("tool_choice")
+        .and_then(Value::as_object)
+        .and_then(|tool_choice| tool_choice.get("disable_parallel_tool_use"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn extract_text_content(value: &Value) -> Result<String, String> {

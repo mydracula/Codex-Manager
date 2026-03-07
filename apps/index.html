@@ -669,8 +669,8 @@
                                             class="settings-inline-tip"
                                             tabindex="0"
                                             role="note"
-                                            title="示例：http://127.0.0.1:7890。留空表示直连上游。"
-                                            aria-label="OpenAI 上游代理说明：填写代理地址后，上游请求会通过该代理转发；留空表示直连。"
+                                            title="支持 http://、https://、socks5://、socks://。留空表示直连，socks 会自动按 socks5h 处理。"
+                                            aria-label="OpenAI 上游代理说明：支持 http://、https://、socks5://、socks://；留空表示直连，socks 会自动按 socks5h 处理。"
                                             >?</span
                                         >
                                     </label>
@@ -696,7 +696,7 @@
                                             id="upstreamProxyHint"
                                             class="hint"
                                         >
-                                            保存后立即生效。
+                                            支持 http/https/socks5，留空直连，socks 会自动按 socks5h 处理。
                                         </div>
                                     </div>
                                 </div>

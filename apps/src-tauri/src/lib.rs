@@ -1,6 +1,6 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::Storage;
-use rfd::FileDialog;
+use rfd::{FileDialog, MessageButtons, MessageDialog, MessageLevel};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -10,10 +10,10 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
-use tauri::WebviewWindowBuilder;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
+use tauri::WebviewWindowBuilder;
 
 mod updater;
 
@@ -697,8 +697,10 @@ async fn app_settings_get(app: tauri::AppHandle) -> Result<serde_json::Value, St
     apply_runtime_storage_env(&app);
     let mut settings = tauri::async_runtime::spawn_blocking(move || {
         codexmanager_service::app_settings_get_with_overrides(
-            Some(codexmanager_service::current_close_to_tray_on_close_setting()
-                && TRAY_AVAILABLE.load(Ordering::Relaxed)),
+            Some(
+                codexmanager_service::current_close_to_tray_on_close_setting()
+                    && TRAY_AVAILABLE.load(Ordering::Relaxed),
+            ),
             Some(TRAY_AVAILABLE.load(Ordering::Relaxed)),
         )
     })
@@ -723,7 +725,10 @@ async fn app_settings_set(
     Ok(settings)
 }
 
-fn effective_lightweight_mode_on_close_to_tray(requested: bool, close_to_tray_effective: bool) -> bool {
+fn effective_lightweight_mode_on_close_to_tray(
+    requested: bool,
+    close_to_tray_effective: bool,
+) -> bool {
     requested && close_to_tray_effective
 }
 
@@ -750,7 +755,10 @@ fn sync_window_runtime_state_from_settings(settings: &mut serde_json::Value) {
             "closeToTrayOnClose".to_string(),
             serde_json::json!(effective_close_to_tray),
         );
-        object.insert("closeToTraySupported".to_string(), serde_json::json!(supported));
+        object.insert(
+            "closeToTraySupported".to_string(),
+            serde_json::json!(supported),
+        );
         object.insert(
             "lightweightModeOnCloseToTray".to_string(),
             serde_json::json!(requested_lightweight_mode),
@@ -782,6 +790,15 @@ fn open_in_browser_blocking(url: &str) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            log::info!(
+                "secondary instance intercepted; focusing main window (args: {:?}, cwd: {})",
+                args,
+                cwd
+            );
+            show_main_window(app);
+            notify_existing_instance_focused();
+        }))
         .setup(|app| {
             load_env_from_exe_dir();
             apply_runtime_storage_env(app.handle());
@@ -928,6 +945,15 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+fn notify_existing_instance_focused() {
+    let _ = MessageDialog::new()
+        .set_title("CodexManager")
+        .set_description("CodexManager 已在运行，已切换到现有窗口。")
+        .set_level(MessageLevel::Info)
+        .set_buttons(MessageButtons::Ok)
+        .show();
 }
 
 fn setup_tray(app: &tauri::AppHandle) -> Result<(), tauri::Error> {

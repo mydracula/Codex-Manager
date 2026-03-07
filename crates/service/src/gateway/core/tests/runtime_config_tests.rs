@@ -1,4 +1,11 @@
 use super::*;
+use std::sync::{Mutex, MutexGuard};
+
+static TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+fn test_guard() -> MutexGuard<'static, ()> {
+    TEST_MUTEX.lock().expect("lock runtime config test mutex")
+}
 
 struct EnvGuard {
     key: &'static str,
@@ -25,6 +32,7 @@ impl Drop for EnvGuard {
 
 #[test]
 fn reload_from_env_updates_timeout_and_cookie() {
+    let _guard = test_guard();
     let _timeout_guard = EnvGuard::set(ENV_UPSTREAM_TOTAL_TIMEOUT_MS, "777");
     let _stream_timeout_guard = EnvGuard::set(ENV_UPSTREAM_STREAM_TIMEOUT_MS, "888");
     let _cookie_guard = EnvGuard::set(ENV_UPSTREAM_COOKIE, "cookie=abc");
@@ -32,6 +40,7 @@ fn reload_from_env_updates_timeout_and_cookie() {
     let _strict_allowlist_guard = EnvGuard::set(ENV_STRICT_REQUEST_PARAM_ALLOWLIST, "0");
     let _client_id_guard = EnvGuard::set(ENV_TOKEN_EXCHANGE_CLIENT_ID, "client-id-123");
     let _issuer_guard = EnvGuard::set(ENV_TOKEN_EXCHANGE_ISSUER, "https://issuer.example");
+    let _proxy_guard = EnvGuard::set(ENV_UPSTREAM_PROXY_URL, "socks5://127.0.0.1:7890");
 
     reload_from_env();
 
@@ -45,14 +54,19 @@ fn reload_from_env_updates_timeout_and_cookie() {
         token_exchange_default_issuer(),
         "https://issuer.example".to_string()
     );
+    assert_eq!(
+        upstream_proxy_url().as_deref(),
+        Some("socks5h://127.0.0.1:7890")
+    );
 }
 
 #[test]
 fn parse_proxy_list_env_limits_to_five_entries() {
+    let _guard = test_guard();
     let _guard = EnvGuard::set(
-    ENV_PROXY_LIST,
-    "http://p1:8080,http://p2:8080;http://p3:8080\nhttp://p4:8080\rhttp://p5:8080,http://p6:8080",
-);
+        ENV_PROXY_LIST,
+        "http://p1:8080,http://p2:8080;http://p3:8080\nhttp://p4:8080\rhttp://p5:8080,http://p6:8080",
+    );
     let parsed = parse_proxy_list_env();
     assert_eq!(parsed.len(), MAX_UPSTREAM_PROXY_POOL_SIZE);
     assert_eq!(parsed.first().map(String::as_str), Some("http://p1:8080"));
@@ -60,7 +74,24 @@ fn parse_proxy_list_env_limits_to_five_entries() {
 }
 
 #[test]
+fn parse_proxy_list_env_normalizes_socks_entries() {
+    let _guard = test_guard();
+    let _guard = EnvGuard::set(
+        ENV_PROXY_LIST,
+        "socks5://127.0.0.1:7890,socks://127.0.0.1:7891,https://socks5://127.0.0.1:7892",
+    );
+
+    let parsed = parse_proxy_list_env();
+
+    assert_eq!(parsed.len(), 3);
+    assert_eq!(parsed[0], "socks5h://127.0.0.1:7890");
+    assert_eq!(parsed[1], "socks5h://127.0.0.1:7891");
+    assert_eq!(parsed[2], "socks5h://127.0.0.1:7892");
+}
+
+#[test]
 fn stable_proxy_index_is_deterministic() {
+    let _guard = test_guard();
     let idx1 = stable_proxy_index("account-42", 5);
     let idx2 = stable_proxy_index("account-42", 5);
     assert_eq!(idx1, idx2);
@@ -69,6 +100,7 @@ fn stable_proxy_index_is_deterministic() {
 
 #[test]
 fn set_upstream_proxy_url_updates_env_and_cache() {
+    let _guard = test_guard();
     let _guard = EnvGuard::set(ENV_UPSTREAM_PROXY_URL, "");
 
     let applied = set_upstream_proxy_url(Some("http://127.0.0.1:7890")).expect("set proxy");
@@ -86,4 +118,19 @@ fn set_upstream_proxy_url_updates_env_and_cache() {
     assert!(cleared.is_none());
     assert_eq!(std::env::var(ENV_UPSTREAM_PROXY_URL).ok(), None);
     assert_eq!(upstream_proxy_url(), None);
+}
+
+#[test]
+fn set_upstream_proxy_url_normalizes_socks_scheme() {
+    let _guard = test_guard();
+    let _guard = EnvGuard::set(ENV_UPSTREAM_PROXY_URL, "");
+
+    let applied =
+        set_upstream_proxy_url(Some("https://socks5://127.0.0.1:7890")).expect("set proxy");
+
+    assert_eq!(applied.as_deref(), Some("socks5h://127.0.0.1:7890"));
+    assert_eq!(
+        std::env::var(ENV_UPSTREAM_PROXY_URL).ok().as_deref(),
+        Some("socks5h://127.0.0.1:7890")
+    );
 }
