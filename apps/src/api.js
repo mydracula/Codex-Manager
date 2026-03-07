@@ -577,6 +577,7 @@ export async function serviceApiKeyCreate(name, modelSlug, reasoningEffort, prof
     name,
     modelSlug,
     reasoningEffort,
+    customKey: profile.customKey || null,
     protocolType: profile.protocolType || null,
     upstreamBaseUrl: profile.upstreamBaseUrl || null,
     staticHeadersJson: profile.staticHeadersJson || null,

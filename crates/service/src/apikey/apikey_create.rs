@@ -14,13 +14,17 @@ pub(crate) fn create_api_key(
     name: Option<String>,
     model_slug: Option<String>,
     reasoning_effort: Option<String>,
+    custom_key: Option<String>,
     protocol_type: Option<String>,
     upstream_base_url: Option<String>,
     static_headers_json: Option<String>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    let key = generate_platform_key();
+    let key = custom_key
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(generate_platform_key);
     let key_hash = hash_platform_key(&key);
     let key_id = generate_key_id();
     let protocol_type = normalize_protocol_type(protocol_type)?;

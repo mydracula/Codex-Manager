@@ -63,6 +63,7 @@ export function createApiKeyActions({
       const reasoningEffort = modelSlug ? (dom.inputApiKeyReasoning.value || null) : null;
       const protocolType = dom.inputApiKeyProtocol?.value || "openai_compat";
       const isAzureProtocol = protocolType === "azure_openai";
+      const customKey = dom.apiKeyValue?.value.trim() || null;
       const upstreamBaseUrl = isAzureProtocol ? (dom.inputApiKeyEndpoint?.value.trim() || null) : null;
       const azureApiKey = isAzureProtocol ? (dom.inputApiKeyAzureApiKey?.value.trim() || null) : null;
       const staticHeadersJson = isAzureProtocol && azureApiKey
@@ -73,6 +74,7 @@ export function createApiKeyActions({
         modelSlug,
         reasoningEffort,
         {
+          customKey,
           protocolType,
           upstreamBaseUrl,
           staticHeadersJson,
