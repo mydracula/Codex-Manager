@@ -1,6 +1,7 @@
-use rusqlite::{params_from_iter, types::Value, Result, Row};
+use postgres::types::ToSql;
+use rusqlite::{params_from_iter, types::Value, Row};
 
-use super::{now_ts, Account, Storage, Token};
+use super::{now_ts, Account, Result, Storage, StorageBackend, Token};
 
 #[derive(Clone, Copy)]
 enum AccountUsageQueryMode {
@@ -10,27 +11,81 @@ enum AccountUsageQueryMode {
 
 impl Storage {
     pub fn insert_account(&self, account: &Account) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO accounts (id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            (
-                &account.id,
-                &account.label,
-                &account.issuer,
-                &account.chatgpt_account_id,
-                &account.workspace_id,
-                &account.group_name,
-                account.sort,
-                &account.status,
-                account.created_at,
-                account.updated_at,
-            ),
-        )?;
-        Ok(())
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                self.conn().execute(
+                    "INSERT INTO accounts (id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                     ON CONFLICT(id) DO UPDATE SET
+                       label = excluded.label,
+                       issuer = excluded.issuer,
+                       chatgpt_account_id = excluded.chatgpt_account_id,
+                       workspace_id = excluded.workspace_id,
+                       group_name = excluded.group_name,
+                       sort = excluded.sort,
+                       status = excluded.status,
+                       created_at = excluded.created_at,
+                       updated_at = excluded.updated_at",
+                    (
+                        &account.id,
+                        &account.label,
+                        &account.issuer,
+                        &account.chatgpt_account_id,
+                        &account.workspace_id,
+                        &account.group_name,
+                        account.sort,
+                        &account.status,
+                        account.created_at,
+                        account.updated_at,
+                    ),
+                )?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                client.execute(
+                    "INSERT INTO accounts (id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     ON CONFLICT(id) DO UPDATE SET
+                       label = EXCLUDED.label,
+                       issuer = EXCLUDED.issuer,
+                       chatgpt_account_id = EXCLUDED.chatgpt_account_id,
+                       workspace_id = EXCLUDED.workspace_id,
+                       group_name = EXCLUDED.group_name,
+                       sort = EXCLUDED.sort,
+                       status = EXCLUDED.status,
+                       created_at = EXCLUDED.created_at,
+                       updated_at = EXCLUDED.updated_at",
+                    &[
+                        &account.id,
+                        &account.label,
+                        &account.issuer,
+                        &account.chatgpt_account_id,
+                        &account.workspace_id,
+                        &account.group_name,
+                        &account.sort,
+                        &account.status,
+                        &account.created_at,
+                        &account.updated_at,
+                    ],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     pub fn account_count(&self) -> Result<i64> {
-        self.conn
-            .query_row("SELECT COUNT(1) FROM accounts", [], |row| row.get(0))
+        match &self.backend {
+            StorageBackend::Sqlite(_) => self
+                .conn()
+                .query_row("SELECT COUNT(1) FROM accounts", [], |row| row.get(0))
+                .map_err(Into::into),
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let row = client.query_one("SELECT COUNT(1) FROM accounts", &[])?;
+                Ok(row.get(0))
+            }
+        }
     }
 
     pub fn account_count_filtered(
@@ -38,11 +93,25 @@ impl Storage {
         query: Option<&str>,
         group_name: Option<&str>,
     ) -> Result<i64> {
-        let mut params = Vec::new();
-        let where_clause = build_account_where_clause(query, group_name, &mut params, "accounts");
-        let sql = format!("SELECT COUNT(1) FROM accounts{where_clause}");
-        self.conn
-            .query_row(&sql, params_from_iter(params), |row| row.get(0))
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut params = Vec::new();
+                let where_clause =
+                    build_account_where_clause(query, group_name, &mut params, "accounts");
+                let sql = format!("SELECT COUNT(1) FROM accounts{where_clause}");
+                self.conn()
+                    .query_row(&sql, params_from_iter(params), |row| row.get(0))
+                    .map_err(Into::into)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let (where_clause, params) =
+                    build_account_where_clause_pg(query, group_name, "accounts", 1);
+                let sql = format!("SELECT COUNT(1) FROM accounts{where_clause}");
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let row = client.query_one(&sql, &params)?;
+                Ok(row.get(0))
+            }
+        }
     }
 
     pub fn account_count_active_available(
@@ -136,65 +205,142 @@ impl Storage {
             gateway_available_clause = gateway_available_usage_clause("lu"),
         );
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query([])?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            out.push(map_gateway_candidate_row(row)?);
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut stmt = self.conn().prepare(&sql)?;
+                let mut rows = stmt.query([])?;
+                let mut out = Vec::new();
+                while let Some(row) = rows.next()? {
+                    out.push(map_gateway_candidate_row(row)?);
+                }
+                Ok(out)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let rows = client.query(&sql, &[])?;
+                Ok(rows.into_iter().map(map_gateway_candidate_row_pg).collect())
+            }
         }
-        Ok(out)
     }
 
     pub fn find_account_by_id(&self, account_id: &str) -> Result<Option<Account>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at
-             FROM accounts
-             WHERE id = ?1
-             LIMIT 1",
-        )?;
-        let mut rows = stmt.query([account_id])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(map_account_row(row)?))
-        } else {
-            Ok(None)
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut stmt = self.conn().prepare(
+                    "SELECT id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at
+                     FROM accounts
+                     WHERE id = ?1
+                     LIMIT 1",
+                )?;
+                let mut rows = stmt.query([account_id])?;
+                if let Some(row) = rows.next()? {
+                    Ok(Some(map_account_row(row)?))
+                } else {
+                    Ok(None)
+                }
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let row = client.query_opt(
+                    "SELECT id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at
+                     FROM accounts
+                     WHERE id = $1
+                     LIMIT 1",
+                    &[&account_id],
+                )?;
+                Ok(row.map(map_account_row_pg))
+            }
         }
     }
 
     pub fn update_account_sort(&self, account_id: &str, sort: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE accounts SET sort = ?1, updated_at = ?2 WHERE id = ?3",
-            (sort, now_ts(), account_id),
-        )?;
-        Ok(())
+        let updated_at = now_ts();
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                self.conn().execute(
+                    "UPDATE accounts SET sort = ?1, updated_at = ?2 WHERE id = ?3",
+                    (sort, updated_at, account_id),
+                )?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                client.execute(
+                    "UPDATE accounts SET sort = $1, updated_at = $2 WHERE id = $3",
+                    &[&sort, &updated_at, &account_id],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     pub fn update_account_status(&self, account_id: &str, status: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE accounts SET status = ?1, updated_at = ?2 WHERE id = ?3",
-            (status, now_ts(), account_id),
-        )?;
-        Ok(())
+        let updated_at = now_ts();
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                self.conn().execute(
+                    "UPDATE accounts SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                    (status, updated_at, account_id),
+                )?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                client.execute(
+                    "UPDATE accounts SET status = $1, updated_at = $2 WHERE id = $3",
+                    &[&status, &updated_at, &account_id],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     pub fn update_account_status_if_changed(&self, account_id: &str, status: &str) -> Result<bool> {
-        let updated = self.conn.execute(
-            "UPDATE accounts SET status = ?1, updated_at = ?2 WHERE id = ?3 AND status != ?1",
-            (status, now_ts(), account_id),
-        )?;
-        Ok(updated > 0)
+        let updated_at = now_ts();
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let updated = self.conn().execute(
+                    "UPDATE accounts SET status = ?1, updated_at = ?2 WHERE id = ?3 AND status != ?1",
+                    (status, updated_at, account_id),
+                )?;
+                Ok(updated > 0)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let updated = client.execute(
+                    "UPDATE accounts SET status = $1, updated_at = $2 WHERE id = $3 AND status != $1",
+                    &[&status, &updated_at, &account_id],
+                )?;
+                Ok(updated > 0)
+            }
+        }
     }
 
     pub fn delete_account(&mut self, account_id: &str) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM tokens WHERE account_id = ?1", [account_id])?;
-        tx.execute(
-            "DELETE FROM usage_snapshots WHERE account_id = ?1",
-            [account_id],
-        )?;
-        tx.execute("DELETE FROM events WHERE account_id = ?1", [account_id])?;
-        tx.execute("DELETE FROM accounts WHERE id = ?1", [account_id])?;
-        tx.commit()?;
-        Ok(())
+        match &mut self.backend {
+            StorageBackend::Sqlite(conn) => {
+                let tx = conn.transaction()?;
+                tx.execute("DELETE FROM tokens WHERE account_id = ?1", [account_id])?;
+                tx.execute(
+                    "DELETE FROM usage_snapshots WHERE account_id = ?1",
+                    [account_id],
+                )?;
+                tx.execute("DELETE FROM events WHERE account_id = ?1", [account_id])?;
+                tx.execute("DELETE FROM accounts WHERE id = ?1", [account_id])?;
+                tx.commit()?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut tx = client.transaction()?;
+                tx.execute("DELETE FROM tokens WHERE account_id = $1", &[&account_id])?;
+                tx.execute("DELETE FROM usage_snapshots WHERE account_id = $1", &[&account_id])?;
+                tx.execute("DELETE FROM events WHERE account_id = $1", &[&account_id])?;
+                tx.execute("DELETE FROM accounts WHERE id = $1", &[&account_id])?;
+                tx.commit()?;
+                Ok(())
+            }
+        }
     }
 
     pub(super) fn ensure_account_meta_columns(&self) -> Result<()> {
@@ -213,26 +359,53 @@ impl Storage {
         group_name: Option<&str>,
         pagination: Option<(i64, i64)>,
     ) -> Result<Vec<Account>> {
-        let mut params = Vec::new();
-        let where_clause = build_account_where_clause(query, group_name, &mut params, "a");
-        let mut sql = format!(
-            "SELECT {} FROM accounts a{where_clause} ORDER BY a.sort ASC, a.updated_at DESC",
-            account_select_columns("a"),
-        );
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut params = Vec::new();
+                let where_clause = build_account_where_clause(query, group_name, &mut params, "a");
+                let mut sql = format!(
+                    "SELECT {} FROM accounts a{where_clause} ORDER BY a.sort ASC, a.updated_at DESC",
+                    account_select_columns("a"),
+                );
 
-        if let Some((offset, limit)) = pagination {
-            sql.push_str(" LIMIT ? OFFSET ?");
-            params.push(Value::Integer(limit.max(1)));
-            params.push(Value::Integer(offset.max(0)));
-        }
+                if let Some((offset, limit)) = pagination {
+                    sql.push_str(" LIMIT ? OFFSET ?");
+                    params.push(Value::Integer(limit.max(1)));
+                    params.push(Value::Integer(offset.max(0)));
+                }
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(params))?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            out.push(map_account_row(row)?);
+                let mut stmt = self.conn().prepare(&sql)?;
+                let mut rows = stmt.query(params_from_iter(params))?;
+                let mut out = Vec::new();
+                while let Some(row) = rows.next()? {
+                    out.push(map_account_row(row)?);
+                }
+                Ok(out)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let (where_clause, mut params) =
+                    build_account_where_clause_pg(query, group_name, "a", 1);
+                let mut sql = format!(
+                    "SELECT {} FROM accounts a{where_clause} ORDER BY a.sort ASC, a.updated_at DESC",
+                    account_select_columns("a"),
+                );
+
+                if let Some((offset, limit)) = pagination {
+                    sql.push_str(&format!(
+                        " LIMIT ${} OFFSET ${}",
+                        params.len() + 1,
+                        params.len() + 2
+                    ));
+                    params.push(Box::new(limit.max(1)));
+                    params.push(Box::new(offset.max(0)));
+                }
+
+                let refs = pg_param_refs(&params);
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let rows = client.query(&sql, &refs)?;
+                Ok(rows.into_iter().map(map_account_row_pg).collect())
+            }
         }
-        Ok(out)
     }
 
     fn query_accounts_with_usage_mode(
@@ -242,38 +415,78 @@ impl Storage {
         mode: AccountUsageQueryMode,
         pagination: Option<(i64, i64)>,
     ) -> Result<Vec<Account>> {
-        let mut params = Vec::new();
-        let mut where_clause = build_account_where_clause(query, group_name, &mut params, "a");
-        append_where_clause(
-            &mut where_clause,
-            account_usage_filter_clause(mode, "a", "lu").as_str(),
-        );
-        let mut sql = format!(
-            "{latest_usage_cte}
-             SELECT {account_select}
-             FROM accounts a
-             LEFT JOIN latest_usage lu
-               ON lu.account_id = a.id
-              AND lu.rn = 1
-             {where_clause}
-             ORDER BY a.sort ASC, a.updated_at DESC",
-            latest_usage_cte = latest_usage_cte_sql(),
-            account_select = account_select_columns("a"),
-        );
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut params = Vec::new();
+                let mut where_clause =
+                    build_account_where_clause(query, group_name, &mut params, "a");
+                append_where_clause(
+                    &mut where_clause,
+                    account_usage_filter_clause(mode, "a", "lu").as_str(),
+                );
+                let mut sql = format!(
+                    "{latest_usage_cte}
+                     SELECT {account_select}
+                     FROM accounts a
+                     LEFT JOIN latest_usage lu
+                       ON lu.account_id = a.id
+                      AND lu.rn = 1
+                     {where_clause}
+                     ORDER BY a.sort ASC, a.updated_at DESC",
+                    latest_usage_cte = latest_usage_cte_sql(),
+                    account_select = account_select_columns("a"),
+                );
 
-        if let Some((offset, limit)) = pagination {
-            sql.push_str(" LIMIT ? OFFSET ?");
-            params.push(Value::Integer(limit.max(1)));
-            params.push(Value::Integer(offset.max(0)));
-        }
+                if let Some((offset, limit)) = pagination {
+                    sql.push_str(" LIMIT ? OFFSET ?");
+                    params.push(Value::Integer(limit.max(1)));
+                    params.push(Value::Integer(offset.max(0)));
+                }
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(params))?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            out.push(map_account_row(row)?);
+                let mut stmt = self.conn().prepare(&sql)?;
+                let mut rows = stmt.query(params_from_iter(params))?;
+                let mut out = Vec::new();
+                while let Some(row) = rows.next()? {
+                    out.push(map_account_row(row)?);
+                }
+                Ok(out)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let (mut where_clause, mut params) =
+                    build_account_where_clause_pg(query, group_name, "a", 1);
+                append_where_clause(
+                    &mut where_clause,
+                    account_usage_filter_clause(mode, "a", "lu").as_str(),
+                );
+                let mut sql = format!(
+                    "{latest_usage_cte}
+                     SELECT {account_select}
+                     FROM accounts a
+                     LEFT JOIN latest_usage lu
+                       ON lu.account_id = a.id
+                      AND lu.rn = 1
+                     {where_clause}
+                     ORDER BY a.sort ASC, a.updated_at DESC",
+                    latest_usage_cte = latest_usage_cte_sql(),
+                    account_select = account_select_columns("a"),
+                );
+
+                if let Some((offset, limit)) = pagination {
+                    sql.push_str(&format!(
+                        " LIMIT ${} OFFSET ${}",
+                        params.len() + 1,
+                        params.len() + 2
+                    ));
+                    params.push(Box::new(limit.max(1)));
+                    params.push(Box::new(offset.max(0)));
+                }
+
+                let refs = pg_param_refs(&params);
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let rows = client.query(&sql, &refs)?;
+                Ok(rows.into_iter().map(map_account_row_pg).collect())
+            }
         }
-        Ok(out)
     }
 
     fn count_accounts_with_usage_mode(
@@ -282,24 +495,52 @@ impl Storage {
         group_name: Option<&str>,
         mode: AccountUsageQueryMode,
     ) -> Result<i64> {
-        let mut params = Vec::new();
-        let mut where_clause = build_account_where_clause(query, group_name, &mut params, "a");
-        append_where_clause(
-            &mut where_clause,
-            account_usage_filter_clause(mode, "a", "lu").as_str(),
-        );
-        let sql = format!(
-            "{latest_usage_cte}
-             SELECT COUNT(1)
-             FROM accounts a
-             LEFT JOIN latest_usage lu
-               ON lu.account_id = a.id
-              AND lu.rn = 1
-             {where_clause}",
-            latest_usage_cte = latest_usage_cte_sql(),
-        );
-        self.conn
-            .query_row(&sql, params_from_iter(params), |row| row.get(0))
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut params = Vec::new();
+                let mut where_clause =
+                    build_account_where_clause(query, group_name, &mut params, "a");
+                append_where_clause(
+                    &mut where_clause,
+                    account_usage_filter_clause(mode, "a", "lu").as_str(),
+                );
+                let sql = format!(
+                    "{latest_usage_cte}
+                     SELECT COUNT(1)
+                     FROM accounts a
+                     LEFT JOIN latest_usage lu
+                       ON lu.account_id = a.id
+                      AND lu.rn = 1
+                     {where_clause}",
+                    latest_usage_cte = latest_usage_cte_sql(),
+                );
+                self.conn()
+                    .query_row(&sql, params_from_iter(params), |row| row.get(0))
+                    .map_err(Into::into)
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let (mut where_clause, params) =
+                    build_account_where_clause_pg(query, group_name, "a", 1);
+                append_where_clause(
+                    &mut where_clause,
+                    account_usage_filter_clause(mode, "a", "lu").as_str(),
+                );
+                let sql = format!(
+                    "{latest_usage_cte}
+                     SELECT COUNT(1)
+                     FROM accounts a
+                     LEFT JOIN latest_usage lu
+                       ON lu.account_id = a.id
+                      AND lu.rn = 1
+                     {where_clause}",
+                    latest_usage_cte = latest_usage_cte_sql(),
+                );
+                let refs = pg_param_refs(&params);
+                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let row = client.query_one(&sql, &refs)?;
+                Ok(row.get(0))
+            }
+        }
     }
 }
 
@@ -355,6 +596,52 @@ fn append_where_clause(where_clause: &mut String, clause: &str) {
         where_clause.push_str(" AND ");
     }
     where_clause.push_str(clause);
+}
+
+fn build_account_where_clause_pg(
+    query: Option<&str>,
+    group_name: Option<&str>,
+    table_name: &str,
+    start_index: usize,
+) -> (String, Vec<Box<dyn ToSql + Sync>>) {
+    let mut clauses = Vec::new();
+    let mut params: Vec<Box<dyn ToSql + Sync>> = Vec::new();
+    let mut next_index = start_index;
+
+    if let Some(keyword) = normalize_optional_filter(query) {
+        let pattern = format!("%{keyword}%");
+        let label_column = qualified_column(table_name, "label");
+        let id_column = qualified_column(table_name, "id");
+        clauses.push(format!(
+            "(LOWER({label_column}) LIKE LOWER(${}) OR LOWER({id_column}) LIKE LOWER(${}))",
+            next_index,
+            next_index + 1
+        ));
+        params.push(Box::new(pattern.clone()));
+        params.push(Box::new(pattern));
+        next_index += 2;
+    }
+
+    if let Some(group) = normalize_optional_filter(group_name) {
+        clauses.push(format!(
+            "{} = ${next_index}",
+            qualified_column(table_name, "group_name")
+        ));
+        params.push(Box::new(group));
+    }
+
+    if clauses.is_empty() {
+        (String::new(), params)
+    } else {
+        (format!(" WHERE {}", clauses.join(" AND ")), params)
+    }
+}
+
+fn pg_param_refs(params: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
+    params
+        .iter()
+        .map(|param| param.as_ref() as &(dyn ToSql + Sync))
+        .collect()
 }
 
 fn qualified_column(table_name: &str, column: &str) -> String {
@@ -469,6 +756,25 @@ fn map_account_row_from_offset(row: &Row<'_>, offset: usize) -> Result<Account> 
     })
 }
 
+fn map_account_row_pg(row: postgres::Row) -> Account {
+    map_account_row_pg_from_offset(&row, 0)
+}
+
+fn map_account_row_pg_from_offset(row: &postgres::Row, offset: usize) -> Account {
+    Account {
+        id: row.get(offset),
+        label: row.get(offset + 1),
+        issuer: row.get(offset + 2),
+        chatgpt_account_id: row.get(offset + 3),
+        workspace_id: row.get(offset + 4),
+        group_name: row.get(offset + 5),
+        sort: row.get(offset + 6),
+        status: row.get(offset + 7),
+        created_at: row.get(offset + 8),
+        updated_at: row.get(offset + 9),
+    }
+}
+
 fn map_token_row_from_offset(row: &Row<'_>, offset: usize) -> Result<Token> {
     Ok(Token {
         account_id: row.get(offset)?,
@@ -480,8 +786,25 @@ fn map_token_row_from_offset(row: &Row<'_>, offset: usize) -> Result<Token> {
     })
 }
 
+fn map_token_row_pg_from_offset(row: &postgres::Row, offset: usize) -> Token {
+    Token {
+        account_id: row.get(offset),
+        id_token: row.get(offset + 1),
+        access_token: row.get(offset + 2),
+        refresh_token: row.get(offset + 3),
+        api_key_access_token: row.get(offset + 4),
+        last_refresh: row.get(offset + 5),
+    }
+}
+
 fn map_gateway_candidate_row(row: &Row<'_>) -> Result<(Account, Token)> {
     let account = map_account_row_from_offset(row, 0)?;
     let token = map_token_row_from_offset(row, 10)?;
     Ok((account, token))
+}
+
+fn map_gateway_candidate_row_pg(row: postgres::Row) -> (Account, Token) {
+    let account = map_account_row_pg_from_offset(&row, 0);
+    let token = map_token_row_pg_from_offset(&row, 10);
+    (account, token)
 }

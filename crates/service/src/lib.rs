@@ -123,8 +123,7 @@ fn normalize_service_bind_mode(raw: Option<&str>) -> &'static str {
 }
 
 fn open_app_settings_storage() -> Option<Storage> {
-    crate::process_env::ensure_default_db_path();
-    let path = std::env::var("CODEXMANAGER_DB_PATH").ok()?;
+    let path = crate::process_env::database_locator_for_open().ok()?;
     let storage = Storage::open(&path).ok()?;
     let _ = storage.init();
     Some(storage)
@@ -222,6 +221,8 @@ const ENV_OVERRIDE_APPLY_MODE_RUNTIME: &str = "runtime";
 const ENV_OVERRIDE_APPLY_MODE_RESTART: &str = "restart";
 
 const APP_SETTINGS_ENV_UNSUPPORTED_KEYS: &[&str] = &[
+    "CODEXMANAGER_DB_DRIVER",
+    "CODEXMANAGER_DATABASE_URL",
     "CODEXMANAGER_DB_PATH",
     "CODEXMANAGER_RPC_TOKEN",
     "CODEXMANAGER_RPC_TOKEN_FILE",
@@ -1401,6 +1402,9 @@ impl ServerHandle {
 
 pub fn start_one_shot_server() -> std::io::Result<ServerHandle> {
     portable::bootstrap_current_process();
+    if let Err(err) = process_env::ensure_supported_driver_for_runtime() {
+        return Err(io::Error::new(io::ErrorKind::Other, err));
+    }
     gateway::reload_runtime_config_from_env();
     // 中文注释：one-shot 入口也先尝试建表，避免未初始化数据库在首个 RPC 就触发读写失败。
     if let Err(err) = storage_helpers::initialize_storage() {
@@ -1424,6 +1428,9 @@ pub fn start_one_shot_server() -> std::io::Result<ServerHandle> {
 
 pub fn start_server(addr: &str) -> std::io::Result<()> {
     portable::bootstrap_current_process();
+    if let Err(err) = process_env::ensure_supported_driver_for_runtime() {
+        return Err(io::Error::new(io::ErrorKind::Other, err));
+    }
     gateway::reload_runtime_config_from_env();
     // 中文注释：启动阶段先做一次显式初始化；不放在每次 open_storage 里是为避免高频 RPC 重复执行迁移检查。
     if let Err(err) = storage_helpers::initialize_storage() {
@@ -1523,3 +1530,7 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
 #[cfg(test)]
 #[path = "tests/lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/process_env_tests.rs"]
+mod process_env_tests;

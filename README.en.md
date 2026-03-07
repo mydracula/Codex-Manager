@@ -108,8 +108,21 @@ docker build -f docker/Dockerfile.web -t codexmanager-web .
 docker run --rm -p 48761:48761 \
   -e CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \
   -e CODEXMANAGER_SERVICE_ADDR=host.docker.internal:48760 \
+  -e CODEXMANAGER_DB_DRIVER=sqlite \
+  -e CODEXMANAGER_DATABASE_URL= \
   -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
   codexmanager-web
+```
+
+### Option 3: Single image (auto-start service inside container)
+```bash
+docker build -f docker/Dockerfile.web -t codexmanager-all-in-one .
+docker run --rm -p 48761:48761 \
+  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
+  -e CODEXMANAGER_DB_DRIVER=sqlite \
+  -e CODEXMANAGER_DATABASE_URL= \
+  -e CODEXMANAGER_DB_PATH=/tmp/codexmanager.db \
+  codexmanager-all-in-one
 ```
 
 ## Development & Build
@@ -252,6 +265,8 @@ It updates:
 | `CODEXMANAGER_WEB_ROOT` | `web/` next to executable | Web static assets directory (used by `codexmanager-web` only; not needed when using embedded UI assets). |
 | `CODEXMANAGER_WEB_NO_OPEN` | Unset | If set, `codexmanager-web` will not auto-open the browser. |
 | `CODEXMANAGER_WEB_NO_SPAWN_SERVICE` | Unset | If set, `codexmanager-web` will not try to auto-spawn `codexmanager-service` from the same directory. |
+| `CODEXMANAGER_DB_DRIVER` | `sqlite` | Database type. `postgres` is now in Beta support; `mysql` is still not implemented. |
+| `CODEXMANAGER_DATABASE_URL` | Unset | Database connection string; set this to a PostgreSQL DSN when using `postgres`, and leave it empty for SQLite. |
 | `CODEXMANAGER_DB_PATH` | `codexmanager.db` next to executable (Service/Web); desktop auto-sets | SQLite path. Desktop sets `app_data_dir/codexmanager.db`. |
 | `CODEXMANAGER_RPC_TOKEN` | Auto-generated random 64-hex string | `/rpc` auth token. Auto-generated if missing, and persisted to `codexmanager.rpc-token` by default for cross-process reuse. |
 | `CODEXMANAGER_RPC_TOKEN_FILE` | `codexmanager.rpc-token` next to DB | Custom `/rpc` token file path (relative paths are resolved from DB directory). |

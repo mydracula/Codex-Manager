@@ -5,6 +5,8 @@ services:
       dockerfile: docker/Dockerfile.service
     environment:
       CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
+      CODEXMANAGER_DB_DRIVER: sqlite
+      CODEXMANAGER_DATABASE_URL: ""
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
     volumes:
@@ -22,6 +24,8 @@ services:
       CODEXMANAGER_WEB_ADDR: 0.0.0.0:48761
       CODEXMANAGER_WEB_NO_SPAWN_SERVICE: "1"
       CODEXMANAGER_SERVICE_ADDR: codexmanager-service:48760
+      CODEXMANAGER_DB_DRIVER: sqlite
+      CODEXMANAGER_DATABASE_URL: ""
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_NO_OPEN: "1"
     volumes:

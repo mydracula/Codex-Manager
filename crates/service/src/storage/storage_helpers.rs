@@ -8,7 +8,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
 struct CachedStorage {
-    path: String,
+    locator: String,
     storage: Storage,
 }
 
@@ -17,14 +17,14 @@ thread_local! {
 }
 
 pub(crate) struct StorageHandle {
-    path: String,
+    locator: String,
     storage: Option<Storage>,
 }
 
 impl StorageHandle {
-    fn new(path: String, storage: Storage) -> Self {
+    fn new(locator: String, storage: Storage) -> Self {
         Self {
-            path,
+            locator,
             storage: Some(storage),
         }
     }
@@ -49,10 +49,10 @@ impl Drop for StorageHandle {
         let Some(storage) = self.storage.take() else {
             return;
         };
-        let path = self.path.clone();
+        let locator = self.locator.clone();
         STORAGE_CACHE.with(|cell| {
             let mut cache = cell.borrow_mut();
-            *cache = Some(CachedStorage { path, storage });
+            *cache = Some(CachedStorage { locator, storage });
         });
     }
 }
@@ -141,59 +141,57 @@ static STORAGE_OPEN_COUNTS: std::sync::OnceLock<std::sync::Mutex<HashMap<String,
     std::sync::OnceLock::new();
 
 pub(crate) fn open_storage() -> Option<StorageHandle> {
-    // 读取数据库路径并打开存储
-    let path = match std::env::var("CODEXMANAGER_DB_PATH") {
-        Ok(path) => path,
-        Err(_) => {
-            log::warn!("CODEXMANAGER_DB_PATH not set");
+    let locator = match crate::process_env::database_locator_for_open() {
+        Ok(locator) => locator,
+        Err(err) => {
+            log::warn!("{err}");
             return None;
         }
     };
-    open_storage_at_path(&path)
+    open_storage_at_path(&locator)
 }
 
-fn open_storage_at_path(path: &str) -> Option<StorageHandle> {
-    if let Some(storage) = take_cached_storage(&path) {
-        return Some(StorageHandle::new(path.to_string(), storage));
+fn open_storage_at_path(locator: &str) -> Option<StorageHandle> {
+    if let Some(storage) = take_cached_storage(locator) {
+        return Some(StorageHandle::new(locator.to_string(), storage));
     }
 
-    if !Path::new(&path).exists() {
-        log::warn!("storage path missing: {}", path);
+    if crate::process_env::is_sqlite_driver() && !Path::new(locator).exists() {
+        log::warn!("storage path missing: {}", locator);
     }
-    let storage = match Storage::open(&path) {
+    let storage = match Storage::open(locator) {
         Ok(storage) => storage,
         Err(err) => {
-            log::error!("open storage failed: {} ({})", path, err);
+            log::error!("open storage failed: {} ({})", locator, err);
             return None;
         }
     };
     #[cfg(test)]
-    record_storage_open_for_tests(path);
-    Some(StorageHandle::new(path.to_string(), storage))
+    record_storage_open_for_tests(locator);
+    Some(StorageHandle::new(locator.to_string(), storage))
 }
 
 pub(crate) fn initialize_storage() -> Result<(), String> {
-    let path = std::env::var("CODEXMANAGER_DB_PATH")
-        .map_err(|_| "CODEXMANAGER_DB_PATH not set".to_string())?;
-    if !Path::new(&path).exists() {
-        log::warn!("storage path missing: {}", path);
+    let locator = crate::process_env::database_locator_for_open()?;
+    if crate::process_env::is_sqlite_driver() && !Path::new(&locator).exists() {
+        log::warn!("storage path missing: {}", locator);
     }
-    let storage =
-        Storage::open(&path).map_err(|err| format!("open storage failed: {} ({})", path, err))?;
+    let storage = Storage::open(&locator)
+        .map_err(|err| format!("open storage failed: {} ({})", locator, err))?;
     storage
         .init()
-        .map_err(|err| format!("storage init failed: {} ({})", path, err))?;
+        .map_err(|err| format!("storage init failed: {} ({})", locator, err))?;
     Ok(())
 }
 
-fn take_cached_storage(path: &str) -> Option<Storage> {
+fn take_cached_storage(locator: &str) -> Option<Storage> {
     STORAGE_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
         match cache.take() {
             Some(CachedStorage {
-                path: cached_path,
+                locator: cached_locator,
                 storage,
-            }) if cached_path == path => Some(storage),
+            }) if cached_locator == locator => Some(storage),
             Some(other) => {
                 *cache = Some(other);
                 None

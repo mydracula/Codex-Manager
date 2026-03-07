@@ -19,7 +19,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     storage.init().expect("second init");
 
     let applied_001: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '001_init'",
             [],
@@ -29,7 +29,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert_eq!(applied_001, 1);
 
     let applied_005: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '005_request_logs'",
             [],
@@ -39,7 +39,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert_eq!(applied_005, 1);
 
     let applied_012: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '012_request_logs_search_indexes'",
             [],
@@ -49,7 +49,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert_eq!(applied_012, 1);
 
     let applied_013: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '013_drop_accounts_note_tags'",
             [],
@@ -58,7 +58,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 013 migration");
     assert_eq!(applied_013, 1);
     let applied_014: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '014_drop_accounts_workspace_name'",
             [],
@@ -67,7 +67,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 014 migration");
     assert_eq!(applied_014, 1);
     let applied_015: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '015_api_key_profiles'",
             [],
@@ -76,7 +76,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 015 migration");
     assert_eq!(applied_015, 1);
     let applied_016: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '016_api_keys_key_hash_index'",
             [],
@@ -85,7 +85,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 016 migration");
     assert_eq!(applied_016, 1);
     let applied_017: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '017_usage_snapshots_captured_id_index'",
             [],
@@ -94,7 +94,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 017 migration");
     assert_eq!(applied_017, 1);
     let applied_018: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '018_accounts_sort_updated_at_index'",
             [],
@@ -103,7 +103,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 018 migration");
     assert_eq!(applied_018, 1);
     let applied_022: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '022_request_token_stats'",
             [],
@@ -112,7 +112,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 022 migration");
     assert_eq!(applied_022, 1);
     let applied_023: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '023_request_token_stats_total_tokens'",
             [],
@@ -121,7 +121,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 023 migration");
     assert_eq!(applied_023, 1);
     let applied_025: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '025_tokens_refresh_schedule'",
             [],
@@ -130,7 +130,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 025 migration");
     assert_eq!(applied_025, 1);
     let applied_027: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '027_request_logs_trace_context'",
             [],
@@ -139,7 +139,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 027 migration");
     assert_eq!(applied_027, 1);
     let applied_028: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '028_request_logs_drop_legacy_usage_columns'",
             [],
@@ -148,7 +148,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .expect("count 028 migration");
     assert_eq!(applied_028, 1);
     let applied_029: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '029_app_settings'",
             [],
@@ -210,13 +210,13 @@ fn file_open_enables_wal_and_normal_synchronous() {
     let storage = Storage::open(&path).expect("open file storage");
 
     let journal_mode: String = storage
-        .conn
+        .conn()
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .expect("read journal mode");
     assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
 
     let synchronous: i64 = storage
-        .conn
+        .conn()
         .query_row("PRAGMA synchronous", [], |row| row.get(0))
         .expect("read synchronous mode");
     assert_eq!(synchronous, 1);
@@ -229,7 +229,7 @@ fn file_open_enables_wal_and_normal_synchronous() {
 fn account_meta_sql_migration_coexists_with_legacy_compat_marker() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage
-        .conn
+        .conn()
         .execute_batch(
             "CREATE TABLE accounts (
                 id TEXT PRIMARY KEY,
@@ -264,7 +264,7 @@ fn account_meta_sql_migration_coexists_with_legacy_compat_marker() {
         .ensure_migrations_table()
         .expect("ensure migration tracker");
     storage
-        .conn
+        .conn()
         .execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES ('compat_account_meta_columns', 1)",
             [],
@@ -280,7 +280,7 @@ fn account_meta_sql_migration_coexists_with_legacy_compat_marker() {
         .expect("apply 011 migration with fallback");
 
     let applied_011: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '011_account_meta_columns'",
             [],
@@ -290,7 +290,7 @@ fn account_meta_sql_migration_coexists_with_legacy_compat_marker() {
     assert_eq!(applied_011, 1);
 
     let legacy_compat_marker: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = 'compat_account_meta_columns'",
             [],
@@ -304,7 +304,7 @@ fn account_meta_sql_migration_coexists_with_legacy_compat_marker() {
 fn sql_migration_can_fallback_to_compat_when_schema_already_exists() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage
-        .conn
+        .conn()
         .execute_batch(
             "CREATE TABLE api_keys (
                 id TEXT PRIMARY KEY,
@@ -330,7 +330,7 @@ fn sql_migration_can_fallback_to_compat_when_schema_already_exists() {
         .expect("apply 004 migration with fallback");
 
     let applied_004: i64 = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '004_api_key_model'",
             [],
@@ -344,7 +344,7 @@ fn sql_migration_can_fallback_to_compat_when_schema_already_exists() {
 fn api_key_profile_migration_backfills_existing_keys() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage
-        .conn
+        .conn()
         .execute_batch(
             "CREATE TABLE api_keys (
                 id TEXT PRIMARY KEY,
@@ -373,7 +373,7 @@ fn api_key_profile_migration_backfills_existing_keys() {
         .expect("apply 015 migration with fallback");
 
     let profile_row: (String, String, String, String, Option<String>, Option<String>) = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT client_type, protocol_type, auth_scheme, default_model, reasoning_effort, upstream_base_url
              FROM api_key_profiles
@@ -406,7 +406,7 @@ fn key_hash_index_migration_adds_api_keys_index() {
     storage.init().expect("init schema");
 
     let index_sql: String = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT sql
              FROM sqlite_master
@@ -425,7 +425,7 @@ fn usage_snapshot_latest_index_migration_adds_captured_id_index() {
     storage.init().expect("init schema");
 
     let index_sql: String = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT sql
              FROM sqlite_master
@@ -445,7 +445,7 @@ fn accounts_sort_index_migration_adds_sort_updated_at_index() {
     storage.init().expect("init schema");
 
     let index_sql: String = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT sql
              FROM sqlite_master
@@ -463,7 +463,7 @@ fn accounts_sort_index_migration_adds_sort_updated_at_index() {
 fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage
-        .conn
+        .conn()
         .execute_batch(
             "CREATE TABLE request_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -523,7 +523,7 @@ fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows(
         .expect("check compact reasoning_output_tokens"));
 
     let request_log_row: (i64, String, Option<String>) = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT id, request_path, response_adapter FROM request_logs WHERE id = 7",
             [],
@@ -538,7 +538,7 @@ fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows(
     );
 
     let token_row: (Option<i64>, Option<i64>, Option<f64>, Option<i64>, Option<i64>) = storage
-        .conn
+        .conn()
         .query_row(
             "SELECT input_tokens, output_tokens, estimated_cost_usd, cached_input_tokens, reasoning_output_tokens
              FROM request_token_stats

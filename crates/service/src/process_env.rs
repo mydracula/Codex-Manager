@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 const ENV_CANDIDATES: [&str; 3] = ["codexmanager.env", "CodexManager.env", ".env"];
 const DEFAULT_DB_FILENAME: &str = "codexmanager.db";
 const DEFAULT_RPC_TOKEN_FILENAME: &str = "codexmanager.rpc-token";
+const DEFAULT_DB_DRIVER: &str = "sqlite";
 
+pub(crate) const ENV_DB_DRIVER: &str = "CODEXMANAGER_DB_DRIVER";
+pub(crate) const ENV_DATABASE_URL: &str = "CODEXMANAGER_DATABASE_URL";
 pub(crate) const ENV_DB_PATH: &str = "CODEXMANAGER_DB_PATH";
 pub(crate) const ENV_RPC_TOKEN: &str = "CODEXMANAGER_RPC_TOKEN";
 pub(crate) const ENV_RPC_TOKEN_FILE: &str = "CODEXMANAGER_RPC_TOKEN_FILE";
@@ -106,32 +109,85 @@ fn resolve_path_with_base(raw: &str, base_dir: &Path) -> PathBuf {
     base_dir.join(path)
 }
 
+pub(crate) fn db_driver() -> String {
+    let driver = std::env::var(ENV_DB_DRIVER)
+        .ok()
+        .map(|raw| raw.trim().to_ascii_lowercase())
+        .filter(|raw| !raw.is_empty())
+        .unwrap_or_else(|| DEFAULT_DB_DRIVER.to_string());
+    std::env::set_var(ENV_DB_DRIVER, &driver);
+    driver
+}
+
+pub(crate) fn database_url() -> Option<String> {
+    std::env::var(ENV_DATABASE_URL)
+        .ok()
+        .map(|raw| raw.trim().to_string())
+        .filter(|raw| !raw.is_empty())
+}
+
+pub(crate) fn is_sqlite_driver() -> bool {
+    db_driver() == DEFAULT_DB_DRIVER
+}
+
+pub(crate) fn ensure_supported_driver_for_runtime() -> Result<(), String> {
+    match db_driver().as_str() {
+        "sqlite" | "postgres" | "mysql" => Ok(()),
+        other => Err(format!(
+            "unsupported {} value: {}",
+            ENV_DB_DRIVER, other
+        )),
+    }
+}
+
 pub(crate) fn ensure_default_db_path() -> PathBuf {
     let dir = exe_dir();
     let resolved = match std::env::var(ENV_DB_PATH) {
         Ok(raw) if !raw.trim().is_empty() => resolve_path_with_base(&raw, &dir),
         _ => dir.join(DEFAULT_DB_FILENAME),
     };
-    std::env::set_var(ENV_DB_PATH, resolved.to_string_lossy().as_ref());
+    if is_sqlite_driver() {
+        std::env::set_var(ENV_DB_PATH, resolved.to_string_lossy().as_ref());
+    }
     resolved
 }
 
-pub(crate) fn db_dir() -> PathBuf {
-    let db_path = ensure_default_db_path();
-    db_path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(exe_dir)
+pub(crate) fn storage_base_dir() -> PathBuf {
+    if is_sqlite_driver() {
+        return ensure_default_db_path()
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(exe_dir);
+    }
+    exe_dir()
+}
+
+pub(crate) fn storage_identity() -> String {
+    if is_sqlite_driver() {
+        return ensure_default_db_path().to_string_lossy().to_string();
+    }
+    match database_url() {
+        Some(url) => format!("{}:{}", db_driver(), url),
+        None => db_driver(),
+    }
+}
+
+pub(crate) fn database_locator_for_open() -> Result<String, String> {
+    ensure_supported_driver_for_runtime()?;
+    if is_sqlite_driver() {
+        return Ok(ensure_default_db_path().to_string_lossy().to_string());
+    }
+    database_url().ok_or_else(|| format!("{} not set", ENV_DATABASE_URL))
 }
 
 pub(crate) fn rpc_token_file_path() -> PathBuf {
     if let Ok(raw) = std::env::var(ENV_RPC_TOKEN_FILE) {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
-            return resolve_path_with_base(trimmed, &db_dir());
+            return resolve_path_with_base(trimmed, &storage_base_dir());
         }
     }
-    db_dir().join(DEFAULT_RPC_TOKEN_FILENAME)
+    storage_base_dir().join(DEFAULT_RPC_TOKEN_FILENAME)
 }
 
 pub(crate) fn read_rpc_token_from_file(path: &Path) -> Option<String> {

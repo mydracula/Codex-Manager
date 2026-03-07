@@ -132,13 +132,7 @@ impl TraceFileWriter {
 }
 
 fn trace_file_path_from_env() -> PathBuf {
-    if let Ok(db_path) = std::env::var("CODEXMANAGER_DB_PATH") {
-        let path = PathBuf::from(db_path);
-        if let Some(parent) = path.parent() {
-            return parent.join("gateway-trace.log");
-        }
-    }
-    PathBuf::from("gateway-trace.log")
+    crate::process_env::storage_base_dir().join("gateway-trace.log")
 }
 
 fn sanitize_text(value: &str) -> String {

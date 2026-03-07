@@ -13,6 +13,16 @@ on:
         required: false
         default: "ghcr.io/mydracula"
         type: string
+      db_driver:
+        description: "Default database driver baked into images (sqlite/postgres/mysql)"
+        required: false
+        default: "sqlite"
+        type: string
+      database_url:
+        description: "Default database URL baked into images (usually empty for sqlite)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -52,6 +62,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.service
+          build-args: |
+            CODEXMANAGER_DB_DRIVER=${{ github.event.inputs.db_driver }}
+            CODEXMANAGER_DATABASE_URL=${{ github.event.inputs.database_url }}
           push: ${{ github.event.inputs.push_to_ghcr == 'true' }}
           tags: |
             ${{ steps.vars.outputs.service_image }}:latest
@@ -63,6 +76,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.web
+          build-args: |
+            CODEXMANAGER_DB_DRIVER=${{ github.event.inputs.db_driver }}
+            CODEXMANAGER_DATABASE_URL=${{ github.event.inputs.database_url }}
           push: ${{ github.event.inputs.push_to_ghcr == 'true' }}
           tags: |
             ${{ steps.vars.outputs.web_image }}:latest

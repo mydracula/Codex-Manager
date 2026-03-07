@@ -164,9 +164,9 @@ pub(super) fn reload_from_env() {
         .unwrap_or(DEFAULT_CANDIDATE_CACHE_TTL_MS);
     CANDIDATE_CACHE_TTL_MS.store(ttl_ms, Ordering::Relaxed);
 
-    let db_path = std::env::var("CODEXMANAGER_DB_PATH").unwrap_or_else(|_| "<unset>".to_string());
+    let identity = crate::process_env::storage_identity();
     let mut cached = crate::lock_utils::write_recover(current_db_path_cell(), "current_db_path");
-    *cached = db_path;
+    *cached = identity;
     clear_candidate_cache();
 }
 

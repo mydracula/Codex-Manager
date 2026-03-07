@@ -1,7 +1,22 @@
-use rusqlite::{Connection, Result};
+use postgres::{Client, NoTls};
+use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+pub type Result<T> = std::result::Result<T, StorageError>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum StorageError {
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Postgres(#[from] postgres::Error),
+    #[error("storage backend not implemented yet: {0}")]
+    BackendNotImplemented(String),
+    #[error("unsupported storage backend: {0}")]
+    UnsupportedBackend(String),
+}
 
 mod accounts;
 mod api_keys;
@@ -146,31 +161,96 @@ pub struct ModelOptionsCacheRecord {
 }
 
 #[derive(Debug)]
+enum StorageBackend {
+    Sqlite(Connection),
+    PostgresUrl(String),
+}
+
+#[derive(Debug)]
 pub struct Storage {
-    conn: Connection,
+    backend: StorageBackend,
 }
 
 impl Storage {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        // 中文注释：并发写入时给 SQLite 一点等待时间，避免瞬时 lock 导致请求直接失败。
+    fn conn(&self) -> &Connection {
+        match &self.backend {
+            StorageBackend::Sqlite(conn) => conn,
+            StorageBackend::PostgresUrl(_) => {
+                panic!("sqlite-only storage path used for postgres backend")
+            }
+        }
+    }
+
+    fn conn_mut(&mut self) -> &mut Connection {
+        match &mut self.backend {
+            StorageBackend::Sqlite(conn) => conn,
+            StorageBackend::PostgresUrl(_) => {
+                panic!("sqlite-only storage path used for postgres backend")
+            }
+        }
+    }
+
+    pub fn open(locator: impl AsRef<Path>) -> Result<Self> {
+        let raw = locator.as_ref().to_string_lossy();
+        if raw.starts_with("postgres://") || raw.starts_with("postgresql://") {
+            return Self::open_postgres(raw.as_ref());
+        }
+        if raw.starts_with("mysql://") {
+            return Self::open_mysql(raw.as_ref());
+        }
+        Self::open_sqlite(locator)
+    }
+
+    fn open_sqlite(locator: impl AsRef<Path>) -> Result<Self> {
+        let conn = Connection::open(locator)?;
         conn.busy_timeout(Duration::from_millis(3000))?;
-        // 中文注释：文件库启用 WAL + NORMAL，可明显降低并发读写互斥开销；
-        // 仅在 open(path) 上设置，避免影响 open_in_memory 的行为预期。
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;",
         )?;
-        Ok(Self { conn })
+        Ok(Self {
+            backend: StorageBackend::Sqlite(conn),
+        })
+    }
+
+    fn open_postgres(url: &str) -> Result<Self> {
+        Ok(Self {
+            backend: StorageBackend::PostgresUrl(url.to_string()),
+        })
+    }
+
+    fn open_mysql(url: &str) -> Result<Self> {
+        Err(StorageError::BackendNotImplemented(format!("mysql ({url})")))
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.busy_timeout(Duration::from_millis(3000))?;
-        Ok(Self { conn })
+        Ok(Self {
+            backend: StorageBackend::Sqlite(conn),
+        })
     }
 
     pub fn init(&self) -> Result<()> {
+        match &self.backend {
+            StorageBackend::Sqlite(_) => self.init_sqlite(),
+            StorageBackend::PostgresUrl(url) => self.init_postgres(url),
+        }
+    }
+
+    fn init_postgres(&self, url: &str) -> Result<()> {
+        let mut client = Client::connect(url, NoTls)?;
+        client.batch_execute(include_str!("../../migrations/postgres/001_baseline.sql"))?;
+        client.execute(
+            "INSERT INTO schema_migrations (version, applied_at)
+             VALUES ($1, $2)
+             ON CONFLICT(version) DO NOTHING",
+            &[&"001_baseline", &now_ts()],
+        )?;
+        Ok(())
+    }
+
+    fn init_sqlite(&self) -> Result<()> {
         self.ensure_migrations_table()?;
 
         self.apply_sql_migration("001_init", include_str!("../../migrations/001_init.sql"))?;
@@ -217,7 +297,6 @@ impl Storage {
             |s| s.ensure_request_log_reasoning_column(),
         )?;
 
-        // 中文注释：先走 SQL 迁移，遇到历史库重复列冲突再回退 compat；不这样写会导致老库和新库长期两套机制并存。
         self.apply_sql_or_compat_migration(
             "011_account_meta_columns",
             include_str!("../../migrations/011_account_meta_columns.sql"),
@@ -295,8 +374,6 @@ impl Storage {
             include_str!("../../migrations/027_request_logs_trace_context.sql"),
             |s| s.ensure_request_log_trace_context_columns(),
         )?;
-        // 中文注释：旧版 request_logs 里遗留的 token 字段，需要先回填到 request_token_stats，
-        // 再做表瘦身；否则压缩后会丢失历史 token 统计。
         self.ensure_request_token_stats_table()?;
         self.apply_compat_migration("028_request_logs_drop_legacy_usage_columns", |s| {
             s.compact_request_logs_legacy_usage_columns()
@@ -314,44 +391,93 @@ impl Storage {
     }
 
     pub fn insert_login_session(&self, session: &LoginSession) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO login_sessions (login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            (
-                &session.login_id,
-                &session.code_verifier,
-                &session.state,
-                &session.status,
-                &session.error,
-                &session.note,
-                &session.tags,
-                &session.group_name,
-                session.created_at,
-                session.updated_at,
-            ),
-        )?;
-        Ok(())
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                self.conn().execute(
+                    "INSERT INTO login_sessions (login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    (
+                        &session.login_id,
+                        &session.code_verifier,
+                        &session.state,
+                        &session.status,
+                        &session.error,
+                        &session.note,
+                        &session.tags,
+                        &session.group_name,
+                        session.created_at,
+                        session.updated_at,
+                    ),
+                )?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = Client::connect(url, NoTls)?;
+                client.execute(
+                    "INSERT INTO login_sessions (login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    &[
+                        &session.login_id,
+                        &session.code_verifier,
+                        &session.state,
+                        &session.status,
+                        &session.error,
+                        &session.note,
+                        &session.tags,
+                        &session.group_name,
+                        &session.created_at,
+                        &session.updated_at,
+                    ],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     pub fn get_login_session(&self, login_id: &str) -> Result<Option<LoginSession>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at FROM login_sessions WHERE login_id = ?1",
-        )?;
-        let mut rows = stmt.query([login_id])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(LoginSession {
-                login_id: row.get(0)?,
-                code_verifier: row.get(1)?,
-                state: row.get(2)?,
-                status: row.get(3)?,
-                error: row.get(4)?,
-                note: row.get(5)?,
-                tags: row.get(6)?,
-                group_name: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            }))
-        } else {
-            Ok(None)
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                let mut stmt = self.conn().prepare(
+                    "SELECT login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at FROM login_sessions WHERE login_id = ?1",
+                )?;
+                let mut rows = stmt.query([login_id])?;
+                if let Some(row) = rows.next()? {
+                    Ok(Some(LoginSession {
+                        login_id: row.get(0)?,
+                        code_verifier: row.get(1)?,
+                        state: row.get(2)?,
+                        status: row.get(3)?,
+                        error: row.get(4)?,
+                        note: row.get(5)?,
+                        tags: row.get(6)?,
+                        group_name: row.get(7)?,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = Client::connect(url, NoTls)?;
+                let row = client.query_opt(
+                    "SELECT login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at
+                     FROM login_sessions
+                     WHERE login_id = $1",
+                    &[&login_id],
+                )?;
+                Ok(row.map(|row| LoginSession {
+                    login_id: row.get(0),
+                    code_verifier: row.get(1),
+                    state: row.get(2),
+                    status: row.get(3),
+                    error: row.get(4),
+                    note: row.get(5),
+                    tags: row.get(6),
+                    group_name: row.get(7),
+                    created_at: row.get(8),
+                    updated_at: row.get(9),
+                }))
+            }
         }
     }
 
@@ -361,11 +487,23 @@ impl Storage {
         status: &str,
         error: Option<&str>,
     ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE login_sessions SET status = ?1, error = ?2, updated_at = ?3 WHERE login_id = ?4",
-            (status, error, now_ts(), login_id),
-        )?;
-        Ok(())
+        match &self.backend {
+            StorageBackend::Sqlite(_) => {
+                self.conn().execute(
+                    "UPDATE login_sessions SET status = ?1, error = ?2, updated_at = ?3 WHERE login_id = ?4",
+                    (status, error, now_ts(), login_id),
+                )?;
+                Ok(())
+            }
+            StorageBackend::PostgresUrl(url) => {
+                let mut client = Client::connect(url, NoTls)?;
+                client.execute(
+                    "UPDATE login_sessions SET status = $1, error = $2, updated_at = $3 WHERE login_id = $4",
+                    &[&status, &error, &now_ts(), &login_id],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     fn ensure_column(&self, table: &str, column: &str, column_type: &str) -> Result<()> {
@@ -373,13 +511,13 @@ impl Storage {
             return Ok(());
         }
         let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_type}");
-        self.conn.execute(&sql, [])?;
+        self.conn().execute(&sql, [])?;
         Ok(())
     }
 
     fn has_column(&self, table: &str, column: &str) -> Result<bool> {
         let sql = format!("PRAGMA table_info({table})");
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn().prepare(&sql)?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let name: String = row.get(1)?;
@@ -391,7 +529,7 @@ impl Storage {
     }
 
     fn ensure_migrations_table(&self) -> Result<()> {
-        self.conn.execute(
+        self.conn().execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (
                 version TEXT PRIMARY KEY,
                 applied_at INTEGER NOT NULL
@@ -403,15 +541,17 @@ impl Storage {
 
     fn has_migration(&self, version: &str) -> Result<bool> {
         let mut stmt = self
-            .conn
+            .conn()
             .prepare("SELECT 1 FROM schema_migrations WHERE version = ?1 LIMIT 1")?;
         let mut rows = stmt.query([version])?;
         Ok(rows.next()?.is_some())
     }
 
     fn mark_migration(&self, version: &str) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        self.conn().execute(
+            "INSERT INTO schema_migrations (version, applied_at)
+             VALUES (?1, ?2)
+             ON CONFLICT(version) DO NOTHING",
             (version, now_ts()),
         )?;
         Ok(())
@@ -421,7 +561,7 @@ impl Storage {
         if self.has_migration(version)? {
             return Ok(());
         }
-        self.conn.execute_batch(sql)?;
+        self.conn().execute_batch(sql)?;
         self.mark_migration(version)
     }
 
@@ -433,7 +573,7 @@ impl Storage {
             return Ok(());
         }
 
-        match self.conn.execute_batch(sql) {
+        match self.conn().execute_batch(sql) {
             Ok(_) => {}
             Err(err) if Self::is_schema_conflict_error(&err) => {
                 // 中文注释：历史库可能已通过旧版 ensure_* 加过列/表，不走 fallback 会让迁移在“重复列/表”上失败。

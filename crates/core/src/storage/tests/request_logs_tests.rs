@@ -1,7 +1,7 @@
-use super::{RequestLog, RequestTokenStat, Storage};
+use super::{request_log_query, RequestLog, RequestTokenStat, Storage};
 
 fn collect_query_plan_details(storage: &Storage, sql: &str) -> Vec<String> {
-    let mut stmt = storage.conn.prepare(sql).expect("prepare explain");
+    let mut stmt = storage.conn().prepare(sql).expect("prepare explain");
     let mut rows = stmt.query([]).expect("query explain");
     let mut details = Vec::new();
     while let Some(row) = rows.next().expect("next explain row") {
@@ -117,6 +117,27 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
 }
 
 #[test]
+fn request_log_query_parser_covers_prefixed_searches() {
+    let like_query = request_log_query::parse_request_log_query(Some("trace:abc"));
+    assert!(matches!(
+        like_query,
+        request_log_query::RequestLogQuery::FieldLike { column: "trace_id", .. }
+    ));
+
+    let exact_query = request_log_query::parse_request_log_query(Some("status:200"));
+    assert!(matches!(
+        exact_query,
+        request_log_query::RequestLogQuery::StatusExact(200)
+    ));
+
+    let range_query = request_log_query::parse_request_log_query(Some("status:5xx"));
+    assert!(matches!(
+        range_query,
+        request_log_query::RequestLogQuery::StatusRange(500, 599)
+    ));
+}
+
+#[test]
 fn token_stat_failure_still_commits_request_log() {
     let storage = Storage::open_in_memory().expect("open");
     // Only create request_logs table, so request_token_stats insert fails.
@@ -168,7 +189,7 @@ fn token_stat_failure_still_commits_request_log() {
     assert!(token_err.is_some(), "token stat insert should fail");
 
     let count: i64 = storage
-        .conn
+        .conn()
         .query_row("SELECT COUNT(1) FROM request_logs", [], |row| row.get(0))
         .expect("count request_logs");
     assert_eq!(count, 1);
