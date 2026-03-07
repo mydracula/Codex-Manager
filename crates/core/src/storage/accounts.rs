@@ -107,8 +107,9 @@ impl Storage {
                 let (where_clause, params) =
                     build_account_where_clause_pg(query, group_name, "accounts", 1);
                 let sql = format!("SELECT COUNT(1) FROM accounts{where_clause}");
+                let refs = pg_param_refs(&params);
                 let mut client = postgres::Client::connect(url, postgres::NoTls)?;
-                let row = client.query_one(&sql, &params)?;
+                let row = client.query_one(&sql, &refs)?;
                 Ok(row.get(0))
             }
         }

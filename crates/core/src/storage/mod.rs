@@ -576,10 +576,9 @@ impl Storage {
         match self.conn().execute_batch(sql) {
             Ok(_) => {}
             Err(err) if Self::is_schema_conflict_error(&err) => {
-                // 中文注释：历史库可能已通过旧版 ensure_* 加过列/表，不走 fallback 会让迁移在“重复列/表”上失败。
                 compat(self)?;
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         }
 
         self.mark_migration(version)
