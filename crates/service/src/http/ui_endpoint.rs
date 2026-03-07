@@ -69,8 +69,15 @@ pub(crate) fn handle_ui(request: Request) {
         return;
     }
 
+    let path = request
+        .url()
+        .split('?')
+        .next()
+        .unwrap_or(request.url())
+        .to_string();
+
     if crate::http::embedded_ui::has_embedded_ui() {
-        let _ = request.respond(serve_embedded_path(request.url().split('?').next().unwrap_or(request.url())));
+        let _ = request.respond(serve_embedded_path(&path));
         return;
     }
 
