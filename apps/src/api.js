@@ -139,6 +139,9 @@ async function rpcInvoke(method, params, options = {}) {
 }
 
 function resolveRpcAddr() {
+  if (!isTauriRuntime()) {
+    return "";
+  }
   const raw = String(state.serviceAddr || "").trim();
   if (raw) {
     return raw;
@@ -182,16 +185,51 @@ async function requestlogListViaHttpRpc(query, limit, options = {}) {
   const timeoutMs = options && Number.isFinite(options.timeoutMs) ? options.timeoutMs : 8000;
   const retries = options && Number.isFinite(options.retries) ? options.retries : 1;
   const retryDelayMs = options && Number.isFinite(options.retryDelayMs) ? options.retryDelayMs : 160;
-  const addr = resolveRpcAddr();
-  const token = await getRpcToken({
-    signal,
-    timeoutMs: Math.min(2500, timeoutMs),
-  });
   const body = JSON.stringify({
     jsonrpc: "2.0",
     id: rpcRequestId++,
     method: "requestlog/list",
     params: { query, limit },
+  });
+
+  if (!isTauriRuntime()) {
+    const response = await fetchWithRetry(
+      "/api/rpc",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body,
+      },
+      {
+        signal,
+        timeoutMs,
+        retries,
+        retryDelayMs,
+        maxRetryDelayMs: 1200,
+        shouldRetry: () => true,
+        shouldRetryStatus: (status) => status === 429 || (status >= 500 && status < 600),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`RPC 请求失败（HTTP ${response.status}）`);
+    }
+    const payload = await response.json();
+    const rpcError = unwrapRpcError(payload);
+    if (rpcError) {
+      throw new Error(rpcError);
+    }
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "result")) {
+      return payload.result;
+    }
+    return payload;
+  }
+
+  const addr = resolveRpcAddr();
+  const token = await getRpcToken({
+    signal,
+    timeoutMs: Math.min(2500, timeoutMs),
   });
   const response = await fetchWithRetry(
     `http://${addr}/rpc`,

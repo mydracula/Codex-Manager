@@ -58,6 +58,13 @@ export function createServiceLifecycle({
   }
 
   function restoreServiceAddr() {
+    if (!isTauriRuntime()) {
+      state.serviceAddr = "";
+      if (dom.serviceAddrInput) {
+        dom.serviceAddrInput.value = "";
+      }
+      return;
+    }
     const savedAddr = typeof state.serviceAddr === "string" ? state.serviceAddr.trim() : "";
     if (savedAddr) {
       state.serviceAddr = savedAddr;

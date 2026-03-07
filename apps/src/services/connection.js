@@ -152,15 +152,7 @@ export function createConnectionService(deps) {
         return true;
       }
     }
-    try {
-      return await startService(stateRef.serviceAddr || "localhost:48760", {
-        retries: 2,
-        delayMs: 300,
-        silent: true,
-      });
-    } catch {
-      return initializeService({ retries: 1, delayMs: 200 });
-    }
+    return initializeService({ retries: 1, delayMs: 200 });
   }
 
   async function startService(rawAddr, options = {}) {

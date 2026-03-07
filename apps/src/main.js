@@ -199,7 +199,7 @@ function buildDefaultAppSettingsSnapshot() {
     lightweightModeOnCloseToTray: false,
     lowTransparency: false,
     theme: "tech",
-    serviceAddr: "localhost:48760",
+    serviceAddr: isTauriRuntime() ? "localhost:48760" : "",
     serviceListenMode: normalizeServiceListenMode(null),
     routeStrategy: normalizeRouteStrategy(null),
     cpaNoCookieHeaderModeEnabled: false,
