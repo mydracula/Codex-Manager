@@ -104,7 +104,7 @@ fn enqueue_request(
     request: Request,
     normal_tx: &Sender<Request>,
     stream_tx: &Sender<Request>,
-) -> Result<(), ()> {
+) -> Result<(), Request> {
     let prefer_stream = request_is_stream_like(&request);
     if prefer_stream {
         match stream_tx.send(request) {
@@ -113,9 +113,14 @@ fn enqueue_request(
                 Ok(())
             }
             Err(err) => {
-                normal_tx.send(err.into_inner()).map_err(|_| ())?;
-                crate::gateway::record_http_queue_enqueue(false);
-                Ok(())
+                let request = err.into_inner();
+                match normal_tx.send(request) {
+                    Ok(()) => {
+                        crate::gateway::record_http_queue_enqueue(false);
+                        Ok(())
+                    }
+                    Err(err) => Err(err.into_inner()),
+                }
             }
         }
     } else {
@@ -125,9 +130,14 @@ fn enqueue_request(
                 Ok(())
             }
             Err(err) => {
-                stream_tx.send(err.into_inner()).map_err(|_| ())?;
-                crate::gateway::record_http_queue_enqueue(true);
-                Ok(())
+                let request = err.into_inner();
+                match stream_tx.send(request) {
+                    Ok(()) => {
+                        crate::gateway::record_http_queue_enqueue(true);
+                        Ok(())
+                    }
+                    Err(err) => Err(err.into_inner()),
+                }
             }
         }
     }
@@ -149,7 +159,7 @@ fn run_backend_server(server: Server) {
             let _ = request.respond(tiny_http::Response::from_string("shutdown"));
             break;
         }
-        if enqueue_request(request, &normal_tx, &stream_tx).is_err() {
+        if let Err(request) = enqueue_request(request, &normal_tx, &stream_tx) {
             crate::gateway::record_http_queue_enqueue_failure();
             log::error!("backend request queue unavailable; responding 503 instead of stopping backend");
             let response = tiny_http::Response::from_string("service overloaded")
