@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use tiny_http::Request;
 use tiny_http::Response;
 use url::Url;
@@ -75,15 +77,28 @@ pub fn handle_rpc(mut request: Request) {
         }
     }
 
-    let mut body = String::new();
-    if request.as_reader().read_to_string(&mut body).is_err() {
+    let max_body_bytes = crate::gateway::front_proxy_max_body_bytes();
+    let mut body_bytes = Vec::new();
+    let mut reader = request.as_reader().take(max_body_bytes as u64 + 1);
+    if reader.read_to_end(&mut body_bytes).is_err() {
         let _ = request.respond(Response::from_string("{}").with_status_code(400));
         return;
     }
-    if body.trim().is_empty() {
+    if body_bytes.len() > max_body_bytes {
+        let _ = request.respond(Response::from_string("{}").with_status_code(413));
+        return;
+    }
+    if body_bytes.iter().all(|value| value.is_ascii_whitespace()) {
         let _ = request.respond(Response::from_string("{}").with_status_code(400));
         return;
     }
+    let body = match String::from_utf8(body_bytes) {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = request.respond(Response::from_string("{}").with_status_code(400));
+            return;
+        }
+    };
 
     let req: codexmanager_core::rpc::types::JsonRpcRequest = match serde_json::from_str(&body) {
         Ok(v) => v,

@@ -82,48 +82,38 @@ A local desktop + service toolkit for managing a Codex-compatible ChatGPT accoun
 
 ## Service Edition (Headless service + Web UI, no desktop runtime)
 1. Download `CodexManager-service-<platform>-<arch>.zip` from the Release page and unzip.
-2. Recommended: start `codexmanager-start` (one process that launches both service + web, and you can Ctrl+C to stop).
-3. You can also start `codexmanager-web` directly (it will auto-spawn `codexmanager-service` from the same directory and open the browser).
-4. Or start `codexmanager-service` first (shows console logs), then start `codexmanager-web`.
-5. Default addresses: service `localhost:48760`, Web UI `http://localhost:48761/`.
-6. Quit: open `http://localhost:48761/__quit` (stops web; if web auto-spawned the service, it will try to stop the service as well).
+2. For local two-process usage you can still start `codexmanager-start`, which launches `service + web` together.
+3. For cloud/container deployments, use **single-service mode**: run `codexmanager-service` with `embedded-ui`, so one process serves the Web UI, `/api/rpc`, and gateway endpoints together.
+4. Default addresses: local service `localhost:48760`; single-service Web UI / gateway `http://localhost:48761/`.
 
 ## Docker Deployment
-### Option 1: docker compose (Recommended)
+### Option 1: Single-service image (Recommended, including Render)
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+docker build -f docker/Dockerfile.web -t codexmanager-web .
+docker run --rm -p 48761:48761 \
+  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
+  -e CODEXMANAGER_DB_DRIVER=sqlite \
+  -e CODEXMANAGER_DATABASE_URL= \
+  -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \
+  -v codexmanager-data:/data \
+  codexmanager-web
 ```
 Open in browser: `http://localhost:48761/`
 
-### Option 2: Build/Run separately
+### Option 2: docker compose
 ```bash
-# service
+docker compose -f docker/docker-compose.yml up --build
+```
+This still starts two containers; for Render/cloud deployments, prefer the single-service image above instead of splitting `web + service`.
+
+### Option 3: Backend-only service (no embedded Web UI)
+```bash
 docker build -f docker/Dockerfile.service -t codexmanager-service .
 docker run --rm -p 48760:48760 -v codexmanager-data:/data \
   -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
   codexmanager-service
-
-# web (must reach the service)
-docker build -f docker/Dockerfile.web -t codexmanager-web .
-docker run --rm -p 48761:48761 \
-  -e CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \
-  -e CODEXMANAGER_SERVICE_ADDR=host.docker.internal:48760 \
-  -e CODEXMANAGER_DB_DRIVER=sqlite \
-  -e CODEXMANAGER_DATABASE_URL= \
-  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
-  codexmanager-web
 ```
-
-### Option 3: Single image (auto-start service inside container)
-```bash
-docker build -f docker/Dockerfile.web -t codexmanager-all-in-one .
-docker run --rm -p 48761:48761 \
-  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
-  -e CODEXMANAGER_DB_DRIVER=sqlite \
-  -e CODEXMANAGER_DATABASE_URL= \
-  -e CODEXMANAGER_DB_PATH=/tmp/codexmanager.db \
-  codexmanager-all-in-one
-```
+This mode exposes backend APIs only and is not the recommended full Web deployment target for Render.
 
 ## Development & Build
 ### Frontend

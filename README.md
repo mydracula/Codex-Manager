@@ -87,48 +87,38 @@
 
 ## Service 版本（后台服务 + Web UI，无桌面环境）
 1. 下载 Release 中的 `CodexManager-service-<platform>-<arch>.zip` 并解压。
-2. 推荐：启动 `codexmanager-start`（一个进程拉起 service + web，且可在控制台 Ctrl+C 关闭）。
-3. 也可以只启动 `codexmanager-web`（会自动拉起同目录的 `codexmanager-service`，并打开浏览器）。
-4. 或者先启动 `codexmanager-service`（会显示控制台日志），再启动 `codexmanager-web`。
-5. 默认地址：service `localhost:48760`，Web UI `http://localhost:48761/`。
-6. 关闭：访问 `http://localhost:48761/__quit`（会关闭 web；若 web 自动拉起过 service，会尝试一并关闭 service）。
+2. 本地双进程场景可继续使用 `codexmanager-start`，它会统一拉起 `service + web`。
+3. 云端/容器部署推荐直接使用 **单服务模式**：启动带 `embedded-ui` 的 `codexmanager-service`，由它同时提供 Web UI、`/api/rpc` 与网关接口。
+4. 默认地址：本地 service `localhost:48760`；单服务 Web UI / 网关 `http://localhost:48761/`。
 
 ## Docker 部署
-### 方式 1：docker compose（推荐）
+### 方式 1：单服务镜像（推荐，Render 也用这个）
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+docker build -f docker/Dockerfile.web -t codexmanager-web .
+docker run --rm -p 48761:48761 \
+  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
+  -e CODEXMANAGER_DB_DRIVER=sqlite \
+  -e CODEXMANAGER_DATABASE_URL= \
+  -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \
+  -v codexmanager-data:/data \
+  codexmanager-web
 ```
 浏览器打开：`http://localhost:48761/`
 
-### 方式 2：分别构建/运行
+### 方式 2：docker compose
 ```bash
-# service
+docker compose -f docker/docker-compose.yml up --build
+```
+默认仍会启动两个容器；若是 Render / 云端部署，请优先使用上面的单服务镜像方式，而不是拆分 `web + service`。
+
+### 方式 3：仅后端 service（无内嵌 Web UI）
+```bash
 docker build -f docker/Dockerfile.service -t codexmanager-service .
 docker run --rm -p 48760:48760 -v codexmanager-data:/data \
   -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
   codexmanager-service
-
-# web（需要能访问到 service）
-docker build -f docker/Dockerfile.web -t codexmanager-web .
-docker run --rm -p 48761:48761 \
-  -e CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \
-  -e CODEXMANAGER_SERVICE_ADDR=host.docker.internal:48760 \
-  -e CODEXMANAGER_DB_DRIVER=sqlite \
-  -e CODEXMANAGER_DATABASE_URL= \
-  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
-  codexmanager-web
 ```
-
-### 方式 3：单镜像运行（容器内自动拉起 service）
-```bash
-docker build -f docker/Dockerfile.web -t codexmanager-all-in-one .
-docker run --rm -p 48761:48761 \
-  -e CODEXMANAGER_RPC_TOKEN=replace_with_your_token \
-  -e CODEXMANAGER_DB_DRIVER=sqlite \
-  -e CODEXMANAGER_DATABASE_URL= \
-  -e CODEXMANAGER_DB_PATH=/tmp/codexmanager.db \
-  codexmanager-all-in-one
-```
+该方式只提供后端接口，不适合作为 Render 的完整 Web 部署入口。
 
 ## 开发与构建
 ### 前端

@@ -3,6 +3,7 @@ use super::{resolve_backend_route, BackendRoute};
 #[test]
 fn resolves_rpc_route() {
     assert_eq!(resolve_backend_route("POST", "/rpc"), BackendRoute::Rpc);
+    assert_eq!(resolve_backend_route("POST", "/api/rpc"), BackendRoute::Rpc);
 }
 
 #[test]
@@ -19,6 +20,12 @@ fn resolves_metrics_route() {
         resolve_backend_route("GET", "/metrics"),
         BackendRoute::Metrics
     );
+}
+
+#[test]
+fn resolves_ui_route() {
+    assert_eq!(resolve_backend_route("GET", "/"), BackendRoute::Ui);
+    assert_eq!(resolve_backend_route("GET", "/assets/index.js"), BackendRoute::Ui);
 }
 
 #[test]

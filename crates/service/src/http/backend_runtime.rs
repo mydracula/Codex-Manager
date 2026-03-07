@@ -30,6 +30,12 @@ pub(crate) struct BackendServer {
     pub(crate) join: thread::JoinHandle<()>,
 }
 
+pub(crate) fn serve_http(addr: &str) -> io::Result<()> {
+    let server = Server::http(addr).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    run_backend_server(server);
+    Ok(())
+}
+
 fn http_worker_count() -> usize {
     // 中文注释：长流请求会占用处理线程；这里固定 worker 上限，避免并发时无限 spawn 拖垮进程。
     let cpus = thread::available_parallelism()
@@ -97,7 +103,9 @@ fn request_accept_header(request: &Request) -> Option<String> {
 }
 
 fn request_is_stream_like(request: &Request) -> bool {
-    request_accept_header(request).is_some_and(|value| value.contains("text/event-stream"))
+    let path = request.url().split('?').next().unwrap_or(request.url());
+    path.starts_with("/v1/responses")
+        || request_accept_header(request).is_some_and(|value| value.contains("text/event-stream"))
 }
 
 fn enqueue_request(

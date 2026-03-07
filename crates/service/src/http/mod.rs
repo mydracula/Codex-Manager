@@ -2,6 +2,7 @@ pub mod callback_endpoint;
 pub mod gateway_endpoint;
 pub mod rpc_endpoint;
 pub mod server;
+pub mod ui_endpoint;
 
 pub(crate) mod backend_router;
 pub(crate) mod backend_runtime;
