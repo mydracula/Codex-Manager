@@ -10,6 +10,7 @@ mod model_options;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
+mod settings;
 mod tokens;
 mod usage;
 
@@ -294,6 +295,20 @@ impl Storage {
             include_str!("../../migrations/027_request_logs_trace_context.sql"),
             |s| s.ensure_request_log_trace_context_columns(),
         )?;
+        // 中文注释：旧版 request_logs 里遗留的 token 字段，需要先回填到 request_token_stats，
+        // 再做表瘦身；否则压缩后会丢失历史 token 统计。
+        self.ensure_request_token_stats_table()?;
+        self.apply_compat_migration("028_request_logs_drop_legacy_usage_columns", |s| {
+            s.compact_request_logs_legacy_usage_columns()
+        })?;
+        self.apply_sql_migration(
+            "029_app_settings",
+            include_str!("../../migrations/029_app_settings.sql"),
+        )?;
+        self.apply_sql_migration(
+            "030_accounts_scale_indexes",
+            include_str!("../../migrations/030_accounts_scale_indexes.sql"),
+        )?;
         self.ensure_request_token_stats_table()?;
         Ok(())
     }
@@ -427,6 +442,17 @@ impl Storage {
             Err(err) => return Err(err),
         }
 
+        self.mark_migration(version)
+    }
+
+    fn apply_compat_migration<F>(&self, version: &str, compat: F) -> Result<()>
+    where
+        F: FnOnce(&Self) -> Result<()>,
+    {
+        if self.has_migration(version)? {
+            return Ok(());
+        }
+        compat(self)?;
         self.mark_migration(version)
     }
 

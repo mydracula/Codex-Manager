@@ -186,15 +186,18 @@ fn maybe_cleanup_expired_cooldowns(state: &mut AccountCooldownState, now: i64) {
     }
 }
 
+pub(super) fn clear_runtime_state() {
+    let lock = ACCOUNT_COOLDOWN_UNTIL.get_or_init(|| Mutex::new(AccountCooldownState::default()));
+    let mut state = crate::lock_utils::lock_recover(lock, "account_cooldown_until");
+    state.entries.clear();
+    state.offense_counts.clear();
+    state.offense_last_at.clear();
+    state.last_cleanup_at = 0;
+}
+
 #[cfg(test)]
 fn clear_account_cooldown_for_tests() {
-    let lock = ACCOUNT_COOLDOWN_UNTIL.get_or_init(|| Mutex::new(AccountCooldownState::default()));
-    if let Ok(mut state) = lock.lock() {
-        state.entries.clear();
-        state.offense_counts.clear();
-        state.offense_last_at.clear();
-        state.last_cleanup_at = 0;
-    }
+    clear_runtime_state();
 }
 
 #[cfg(test)]

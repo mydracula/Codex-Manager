@@ -12,8 +12,19 @@ import {
 const ACCOUNT_ACTION_OPEN_USAGE = "open-usage";
 const ACCOUNT_ACTION_SET_CURRENT = "set-current";
 const ACCOUNT_ACTION_DELETE = "delete";
+const ACCOUNT_FIELD_SELECT = "selected";
+const ACCOUNT_PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 80, 120, 500];
+const DEFAULT_ACCOUNT_PAGE_SIZE = 5;
 
-let accountRowsEventsBound = false;
+let accountRowsEventsBoundEl = null;
+let accountRowsClickHandler = null;
+let accountRowsChangeHandler = null;
+let accountSelectAllBoundEl = null;
+let accountSelectAllChangeHandler = null;
+let accountPaginationBoundRefs = null;
+let accountPageSizeChangeHandler = null;
+let accountPagePrevClickHandler = null;
+let accountPageNextClickHandler = null;
 let accountRowHandlers = null;
 let accountLookupById = new Map();
 let accountRowNodesById = new Map();
@@ -62,6 +73,94 @@ export function renderAccountsRefreshProgress(progress = getRefreshAllProgress()
   const lastTaskLabel = String(progress?.lastTaskLabel || "").trim();
   node.hidden = false;
   node.textContent = lastTaskLabel ? `${primaryText} · 最近完成：${lastTaskLabel}` : primaryText;
+}
+
+function getSelectedAccountIdSet() {
+  if (state.selectedAccountIds instanceof Set) {
+    return state.selectedAccountIds;
+  }
+  const next = new Set(Array.isArray(state.selectedAccountIds) ? state.selectedAccountIds : []);
+  state.selectedAccountIds = next;
+  return next;
+}
+
+function pruneSelectedAccountIds(accounts = state.accountList) {
+  const selected = getSelectedAccountIdSet();
+  if (selected.size === 0) {
+    return;
+  }
+  const validIds = new Set(
+    Array.from(accounts || [])
+      .map((item) => String(item?.id || "").trim())
+      .filter(Boolean),
+  );
+  for (const accountId of Array.from(selected)) {
+    if (!validIds.has(accountId)) {
+      selected.delete(accountId);
+    }
+  }
+}
+
+function isAccountSelected(accountId) {
+  if (!accountId) return false;
+  return getSelectedAccountIdSet().has(accountId);
+}
+
+function setAccountSelected(accountId, selected) {
+  const normalizedId = String(accountId || "").trim();
+  if (!normalizedId) return false;
+  const selectedIds = getSelectedAccountIdSet();
+  const had = selectedIds.has(normalizedId);
+  if (selected) {
+    if (!had) {
+      selectedIds.add(normalizedId);
+      return true;
+    }
+    return false;
+  }
+  if (had) {
+    selectedIds.delete(normalizedId);
+    return true;
+  }
+  return false;
+}
+
+function setPageSelection(accounts, selected) {
+  let changed = false;
+  for (const account of accounts || []) {
+    changed = setAccountSelected(account?.id, selected) || changed;
+  }
+  return changed;
+}
+
+function syncAccountSelectionControls(accounts) {
+  const pageItems = Array.isArray(accounts) ? accounts : [];
+  const selectedIds = getSelectedAccountIdSet();
+  const currentPageIds = pageItems
+    .map((item) => String(item?.id || "").trim())
+    .filter(Boolean);
+  let selectedOnPage = 0;
+  for (const accountId of currentPageIds) {
+    if (selectedIds.has(accountId)) {
+      selectedOnPage += 1;
+    }
+  }
+
+  if (dom.accountSelectAll) {
+    const allSelected = currentPageIds.length > 0 && selectedOnPage === currentPageIds.length;
+    dom.accountSelectAll.disabled = currentPageIds.length === 0;
+    dom.accountSelectAll.checked = allSelected;
+    dom.accountSelectAll.indeterminate =
+      selectedOnPage > 0 && selectedOnPage < currentPageIds.length;
+  }
+
+  if (dom.deleteSelectedAccountsBtn) {
+    const count = selectedIds.size;
+    dom.deleteSelectedAccountsBtn.disabled = count === 0;
+    dom.deleteSelectedAccountsBtn.textContent = count > 0
+      ? `删除选中账号（${count}）`
+      : "删除选中账号";
+  }
 }
 
 function getGroupOptions(accounts) {
@@ -140,6 +239,19 @@ function renderMiniUsageLine(label, remain, secondary) {
   return line;
 }
 
+function createSelectCell(account) {
+  const cellSelect = document.createElement("td");
+  cellSelect.className = "account-col-select";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "account-select-checkbox";
+  checkbox.setAttribute("data-field", ACCOUNT_FIELD_SELECT);
+  checkbox.checked = isAccountSelected(account?.id);
+  checkbox.setAttribute("aria-label", `选择账号 ${account?.label || account?.id || ""}`);
+  cellSelect.appendChild(checkbox);
+  return cellSelect;
+}
+
 function createStatusTag(status) {
   const statusTag = document.createElement("span");
   statusTag.className = "status-tag";
@@ -153,6 +265,7 @@ function createStatusTag(status) {
 
 function createAccountCell(account, accountDerived) {
   const cellAccount = document.createElement("td");
+  cellAccount.className = "account-col-account";
   const accountWrap = document.createElement("div");
   accountWrap.className = "cell-stack";
   const primaryRemain = accountDerived?.primaryRemain ?? null;
@@ -190,12 +303,14 @@ function createAccountCell(account, accountDerived) {
 
 function createGroupCell(account) {
   const cellGroup = document.createElement("td");
+  cellGroup.className = "account-col-group";
   cellGroup.textContent = normalizeGroupName(account.groupName) || "-";
   return cellGroup;
 }
 
 function createSortCell(account) {
   const cellSort = document.createElement("td");
+  cellSort.className = "account-col-sort";
   const sortInput = document.createElement("input");
   sortInput.className = "sort-input";
   sortInput.type = "number";
@@ -208,6 +323,7 @@ function createSortCell(account) {
 
 function createUpdatedCell(usage) {
   const cellUpdated = document.createElement("td");
+  cellUpdated.className = "account-col-updated";
   const updatedText = document.createElement("strong");
   updatedText.textContent = usage && usage.capturedAt ? formatTs(usage.capturedAt) : "未知";
   cellUpdated.appendChild(updatedText);
@@ -216,6 +332,7 @@ function createUpdatedCell(usage) {
 
 function createActionsCell(isDeletable) {
   const cellActions = document.createElement("td");
+  cellActions.className = "account-col-actions";
   const actionsWrap = document.createElement("div");
   actionsWrap.className = "cell-actions";
   const btn = document.createElement("button");
@@ -256,7 +373,7 @@ function syncSetCurrentButton(actionsWrap, status) {
 function renderEmptyRow(message) {
   const emptyRow = document.createElement("tr");
   const emptyCell = document.createElement("td");
-  emptyCell.colSpan = 6;
+  emptyCell.colSpan = 7;
   emptyCell.textContent = message;
   emptyRow.appendChild(emptyCell);
   dom.accountRows.appendChild(emptyRow);
@@ -272,11 +389,13 @@ function renderAccountRow(account, accountDerivedMap, { onDelete }) {
     status: { text: "未知", level: "unknown" },
   };
 
+  row.appendChild(createSelectCell(account));
   row.appendChild(createAccountCell(account, accountDerived));
   row.appendChild(createGroupCell(account));
   row.appendChild(createSortCell(account));
 
   const cellStatus = document.createElement("td");
+  cellStatus.className = "account-col-status";
   cellStatus.appendChild(createStatusTag(accountDerived.status));
   row.appendChild(cellStatus);
 
@@ -285,6 +404,187 @@ function renderAccountRow(account, accountDerivedMap, { onDelete }) {
   row.appendChild(actionsCell);
   syncSetCurrentButton(actionsCell.querySelector(".cell-actions"), accountDerived.status);
   return row;
+}
+
+function normalizeAccountPageSize(value) {
+  const parsed = Number(value);
+  if (ACCOUNT_PAGE_SIZE_OPTIONS.includes(parsed)) {
+    return parsed;
+  }
+  return DEFAULT_ACCOUNT_PAGE_SIZE;
+}
+
+function clampAccountPage(page, totalPages) {
+  const normalized = Number(page);
+  if (!Number.isFinite(normalized) || normalized < 1) {
+    return 1;
+  }
+  return Math.min(Math.trunc(normalized), Math.max(1, totalPages));
+}
+
+function getAccountPageContext(filtered) {
+  const total = Array.isArray(filtered) ? filtered.length : 0;
+  const pageSize = normalizeAccountPageSize(state.accountPageSize);
+  state.accountPageSize = pageSize;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = clampAccountPage(state.accountPage, totalPages);
+  state.accountPage = page;
+  const startIndex = total > 0 ? (page - 1) * pageSize : 0;
+  const endIndex = total > 0 ? Math.min(startIndex + pageSize, total) : 0;
+  return {
+    total,
+    pageSize,
+    totalPages,
+    page,
+    startIndex,
+    endIndex,
+    items: total > 0 ? filtered.slice(startIndex, endIndex) : [],
+  };
+}
+
+function rerenderAccountsPage() {
+  if (!accountRowHandlers) return;
+  renderAccounts(accountRowHandlers);
+}
+
+function requestAccountsPageReload() {
+  if (typeof accountRowHandlers?.onRefreshPage === "function") {
+    void accountRowHandlers.onRefreshPage();
+    return;
+  }
+  rerenderAccountsPage();
+}
+
+function getRenderedAccountsContext() {
+  const usingRemotePagination = state.accountPageLoaded === true;
+  const sourceAccounts = usingRemotePagination ? state.accountPageItems : state.accountList;
+  const accountDerivedMap = getAccountDerivedMapCached(sourceAccounts, state.usageList);
+  const pageContext = usingRemotePagination
+    ? getRemoteAccountPageContext(state.accountPageItems, state.accountPageTotal)
+    : getAccountPageContext(filterAccounts(
+      state.accountList,
+      accountDerivedMap,
+      state.accountSearch,
+      state.accountFilter,
+      state.accountGroupFilter,
+    ));
+  return {
+    usingRemotePagination,
+    sourceAccounts,
+    accountDerivedMap,
+    pageContext,
+  };
+}
+
+function ensureAccountSelectAllEventsBound() {
+  if (!dom.accountSelectAll) {
+    return;
+  }
+  if (!accountSelectAllChangeHandler) {
+    accountSelectAllChangeHandler = (event) => {
+      const nextSelected = Boolean(event?.target?.checked);
+      const { pageContext } = getRenderedAccountsContext();
+      const changed = setPageSelection(pageContext.items, nextSelected);
+      syncAccountSelectionControls(pageContext.items);
+      if (changed) {
+        rerenderAccountsPage();
+      }
+    };
+  }
+  if (accountSelectAllBoundEl && accountSelectAllBoundEl !== dom.accountSelectAll) {
+    accountSelectAllBoundEl.removeEventListener("change", accountSelectAllChangeHandler);
+  }
+  if (accountSelectAllBoundEl === dom.accountSelectAll) {
+    return;
+  }
+  dom.accountSelectAll.addEventListener("change", accountSelectAllChangeHandler);
+  accountSelectAllBoundEl = dom.accountSelectAll;
+}
+
+function ensureAccountPaginationEventsBound() {
+  if (!dom.accountPageSize || !dom.accountPagePrev || !dom.accountPageNext) {
+    return;
+  }
+  const nextRefs = {
+    pageSize: dom.accountPageSize,
+    prev: dom.accountPagePrev,
+    next: dom.accountPageNext,
+  };
+  if (
+    accountPaginationBoundRefs
+    && accountPaginationBoundRefs.pageSize === nextRefs.pageSize
+    && accountPaginationBoundRefs.prev === nextRefs.prev
+    && accountPaginationBoundRefs.next === nextRefs.next
+  ) {
+    return;
+  }
+  if (!accountPageSizeChangeHandler) {
+    accountPageSizeChangeHandler = (event) => {
+      const nextPageSize = normalizeAccountPageSize(event.target?.value);
+      if (nextPageSize === state.accountPageSize && state.accountPage === 1) {
+        return;
+      }
+      state.accountPageSize = nextPageSize;
+      state.accountPage = 1;
+      requestAccountsPageReload();
+    };
+  }
+  if (!accountPagePrevClickHandler) {
+    accountPagePrevClickHandler = () => {
+      if (state.accountPage <= 1) {
+        return;
+      }
+      state.accountPage -= 1;
+      requestAccountsPageReload();
+    };
+  }
+  if (!accountPageNextClickHandler) {
+    accountPageNextClickHandler = () => {
+      state.accountPage += 1;
+      requestAccountsPageReload();
+    };
+  }
+  if (accountPaginationBoundRefs) {
+    accountPaginationBoundRefs.pageSize?.removeEventListener("change", accountPageSizeChangeHandler);
+    accountPaginationBoundRefs.prev?.removeEventListener("click", accountPagePrevClickHandler);
+    accountPaginationBoundRefs.next?.removeEventListener("click", accountPageNextClickHandler);
+  }
+  nextRefs.pageSize.addEventListener("change", accountPageSizeChangeHandler);
+  nextRefs.prev.addEventListener("click", accountPagePrevClickHandler);
+  nextRefs.next.addEventListener("click", accountPageNextClickHandler);
+  accountPaginationBoundRefs = nextRefs;
+}
+
+function renderAccountPagination(pageContext) {
+  ensureAccountPaginationEventsBound();
+  if (
+    !dom.accountPagination
+    || !dom.accountPaginationSummary
+    || !dom.accountPageSize
+    || !dom.accountPagePrev
+    || !dom.accountPageInfo
+    || !dom.accountPageNext
+  ) {
+    return;
+  }
+  const {
+    total,
+    pageSize,
+    totalPages,
+    page,
+    startIndex,
+    endIndex,
+  } = pageContext;
+  dom.accountPagination.hidden = false;
+  dom.accountPageSize.value = String(pageSize);
+  if (total <= 0) {
+    dom.accountPaginationSummary.textContent = "共 0 个账号";
+  } else {
+    dom.accountPaginationSummary.textContent = `共 ${total} 个账号，当前显示 ${startIndex + 1}-${endIndex}`;
+  }
+  dom.accountPageInfo.textContent = `第 ${page} / ${totalPages} 页`;
+  dom.accountPagePrev.disabled = total <= 0 || page <= 1;
+  dom.accountPageNext.disabled = total <= 0 || page >= totalPages;
 }
 
 function removeAllAccountRows() {
@@ -359,8 +659,12 @@ function updateAccountRow(row, account, accountDerivedMap, { onDelete }) {
     status: { text: "未知", level: "unknown" },
   };
 
-  // Column 0: account cell
-  const cellAccount = row.children[0];
+  const selectInput = row.querySelector?.(`input[data-field='${ACCOUNT_FIELD_SELECT}']`);
+  if (selectInput) {
+    selectInput.checked = isAccountSelected(account.id);
+  }
+
+  const cellAccount = row.querySelector?.(".account-col-account");
   const title = cellAccount?.querySelector?.("strong");
   const meta = cellAccount?.querySelector?.("small");
   if (title) title.textContent = account.label || "-";
@@ -368,12 +672,11 @@ function updateAccountRow(row, account, accountDerivedMap, { onDelete }) {
   const mini = cellAccount?.querySelector?.(".mini-usage");
   updateMiniUsage(mini, accountDerived.usage, accountDerived.primaryRemain, accountDerived.secondaryRemain);
 
-  // Column 1: group
-  const cellGroup = row.children[1];
+  const cellGroup = row.querySelector?.(".account-col-group");
   if (cellGroup) cellGroup.textContent = normalizeGroupName(account.groupName) || "-";
 
-  // Column 2: sort input (avoid clobbering user input while focused)
-  const sortInput = row.querySelector?.("input[data-field='sort']");
+  const sortCell = row.querySelector?.(".account-col-sort");
+  const sortInput = sortCell?.querySelector?.("input[data-field='sort']");
   if (sortInput) {
     const next = account.sort != null ? String(account.sort) : "0";
     if (document.activeElement !== sortInput) {
@@ -382,20 +685,20 @@ function updateAccountRow(row, account, accountDerivedMap, { onDelete }) {
     }
   }
 
-  // Column 3: status
-  const statusTag = row.querySelector?.(".status-tag");
+  const statusCell = row.querySelector?.(".account-col-status");
+  const statusTag = statusCell?.querySelector?.(".status-tag");
   updateStatusTag(statusTag, accountDerived.status);
 
-  // Column 4: updated
-  const updatedStrong = row.children[4]?.querySelector?.("strong");
+  const updatedCell = row.querySelector?.(".account-col-updated");
+  const updatedStrong = updatedCell?.querySelector?.("strong");
   if (updatedStrong) {
     updatedStrong.textContent = accountDerived.usage && accountDerived.usage.capturedAt
       ? formatTs(accountDerived.usage.capturedAt)
       : "未知";
   }
 
-  // Column 5: actions
-  const actionsWrap = row.children[5]?.querySelector?.(".cell-actions");
+  const actionsCell = row.querySelector?.(".account-col-actions");
+  const actionsWrap = actionsCell?.querySelector?.(".cell-actions");
   syncDeleteButton(actionsWrap, Boolean(onDelete));
   syncSetCurrentButton(actionsWrap, accountDerived.status);
   return row;
@@ -441,6 +744,8 @@ function syncAccountRows(filtered, accountDerivedMap, { onDelete }) {
     }
     cursor = next;
   }
+
+  syncAccountSelectionControls(filtered);
 }
 
 function getAccountFromRow(row, lookup) {
@@ -473,6 +778,17 @@ export function handleAccountRowsClick(target, handlers = accountRowHandlers, lo
 }
 
 export function handleAccountRowsChange(target, handlers = accountRowHandlers) {
+  const selectInput = target?.closest?.(`input[data-field='${ACCOUNT_FIELD_SELECT}']`);
+  if (selectInput) {
+    const row = selectInput.closest("tr[data-account-id]");
+    if (!row) return false;
+    const accountId = row.dataset.accountId;
+    if (!accountId) return false;
+    const changed = setAccountSelected(accountId, Boolean(selectInput.checked));
+    const { pageContext } = getRenderedAccountsContext();
+    syncAccountSelectionControls(pageContext.items);
+    return changed;
+  }
   const sortInput = target?.closest?.("input[data-field='sort']");
   if (!sortInput) return false;
   const row = sortInput.closest("tr[data-account-id]");
@@ -490,42 +806,81 @@ export function handleAccountRowsChange(target, handlers = accountRowHandlers) {
 }
 
 function ensureAccountRowsEventsBound() {
-  if (accountRowsEventsBound || !dom.accountRows) {
+  if (!dom.accountRows) {
     return;
   }
-  accountRowsEventsBound = true;
-  dom.accountRows.addEventListener("click", (event) => {
-    handleAccountRowsClick(event.target);
-  });
-  dom.accountRows.addEventListener("change", (event) => {
-    handleAccountRowsChange(event.target);
-  });
+  if (!accountRowsClickHandler) {
+    accountRowsClickHandler = (event) => {
+      handleAccountRowsClick(event.target);
+    };
+  }
+  if (!accountRowsChangeHandler) {
+    accountRowsChangeHandler = (event) => {
+      handleAccountRowsChange(event.target);
+    };
+  }
+  if (accountRowsEventsBoundEl && accountRowsEventsBoundEl !== dom.accountRows) {
+    accountRowsEventsBoundEl.removeEventListener("click", accountRowsClickHandler);
+    accountRowsEventsBoundEl.removeEventListener("change", accountRowsChangeHandler);
+  }
+  if (accountRowsEventsBoundEl === dom.accountRows) {
+    return;
+  }
+  dom.accountRows.addEventListener("click", accountRowsClickHandler);
+  dom.accountRows.addEventListener("change", accountRowsChangeHandler);
+  accountRowsEventsBoundEl = dom.accountRows;
+}
+
+function getRemoteAccountPageContext(items, total) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const normalizedTotal = Math.max(0, Number(total || 0));
+  const pageSize = normalizeAccountPageSize(state.accountPageSize);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
+  const page = clampAccountPage(state.accountPage, totalPages);
+  state.accountPage = page;
+  state.accountPageSize = pageSize;
+  const startIndex = normalizedTotal > 0 ? (page - 1) * pageSize : 0;
+  const endIndex = normalizedTotal > 0 ? startIndex + safeItems.length : 0;
+  return {
+    total: normalizedTotal,
+    pageSize,
+    totalPages,
+    page,
+    startIndex,
+    endIndex,
+    items: safeItems,
+  };
 }
 
 // 渲染账号列表
-export function renderAccounts({ onUpdateSort, onOpenUsage, onSetCurrentAccount, onDelete }) {
+export function renderAccounts({
+  onUpdateSort,
+  onOpenUsage,
+  onSetCurrentAccount,
+  onDelete,
+  onRefreshPage,
+}) {
   ensureAccountRowsEventsBound();
+  ensureAccountSelectAllEventsBound();
   renderAccountsRefreshProgress();
-  accountRowHandlers = { onUpdateSort, onOpenUsage, onSetCurrentAccount, onDelete };
+  accountRowHandlers = { onUpdateSort, onOpenUsage, onSetCurrentAccount, onDelete, onRefreshPage };
   syncGroupFilterSelect(getGroupOptions(state.accountList), state.accountList);
-  const accountDerivedMap = getAccountDerivedMapCached(state.accountList, state.usageList);
+  if (state.accountList.length > 0) {
+    pruneSelectedAccountIds(state.accountList);
+  }
+  const { pageContext, accountDerivedMap } = getRenderedAccountsContext();
+  renderAccountPagination(pageContext);
 
-  const filtered = filterAccounts(
-    state.accountList,
-    accountDerivedMap,
-    state.accountSearch,
-    state.accountFilter,
-    state.accountGroupFilter,
-  );
-
-  if (filtered.length === 0) {
+  if (pageContext.total === 0) {
     accountLookupById = new Map();
-    const message = state.accountList.length === 0 ? "暂无账号" : "当前筛选条件下无结果";
+    syncAccountSelectionControls([]);
+    const hasAccounts = state.accountList.length > 0;
+    const message = hasAccounts ? "当前筛选条件下无结果" : "暂无账号";
     removeAllAccountRows();
     renderEmptyRow(message);
     return;
   }
 
-  accountLookupById = new Map(filtered.map((account) => [account.id, account]));
-  syncAccountRows(filtered, accountDerivedMap, { onDelete });
+  accountLookupById = new Map(pageContext.items.map((account) => [account.id, account]));
+  syncAccountRows(pageContext.items, accountDerivedMap, { onDelete });
 }

@@ -393,7 +393,6 @@ pub(in super::super) fn proxy_validated_request(
                 context.log_attempt_result(&account.id, upstream_url, status_code, error);
             },
         );
-
         match decision {
             CandidateUpstreamDecision::Failover => {
                 let _ = super::super::clear_manual_preferred_account_if(&account.id);

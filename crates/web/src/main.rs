@@ -2,21 +2,29 @@
 
 mod embedded_ui;
 
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::{OriginalUri, State};
-use axum::http::{HeaderMap, Method, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::extract::{OriginalUri, Request, State};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::middleware::Next;
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::Router;
 use tokio::sync::{watch, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
 
 const DEFAULT_WEB_ADDR: &str = "localhost:48761";
+const WEB_AUTH_COOKIE_NAME: &str = "codexmanager_web_auth";
+
+#[derive(Debug, Deserialize)]
+struct LoginForm {
+    password: String,
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -165,6 +173,126 @@ fn builtin_missing_ui_html(detail: &str) -> String {
     )
 }
 
+fn builtin_login_html(error: Option<&str>) -> String {
+    let error_html = error
+        .map(|text| format!(r#"<div class="error">{}</div>"#, escape_html(text)))
+        .unwrap_or_default();
+    format!(
+        r#"<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>CodexManager Web 登录</title>
+    <style>
+      :root {{
+        color-scheme: light;
+        --bg: #eef3f8;
+        --panel: rgba(255,255,255,.92);
+        --text: #142033;
+        --muted: #627389;
+        --accent: #0f6fff;
+        --accent-strong: #0a57ca;
+        --border: rgba(20,32,51,.12);
+        --error-bg: rgba(193, 45, 45, .1);
+        --error-fg: #b42318;
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(15,111,255,.18), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(45,164,78,.14), transparent 26%),
+          linear-gradient(160deg, #f6f9fc 0%, #e8eef6 100%);
+        color: var(--text);
+      }}
+      .card {{
+        width: min(100%, 420px);
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--panel);
+        box-shadow: 0 24px 60px rgba(15, 23, 42, .12);
+        backdrop-filter: blur(14px);
+      }}
+      .mark {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #0f6fff, #2bb673);
+        color: #fff;
+        font-weight: 700;
+      }}
+      h1 {{ margin: 16px 0 6px; font-size: 22px; }}
+      p {{ margin: 0 0 18px; color: var(--muted); line-height: 1.6; }}
+      label {{ display: block; margin-bottom: 10px; font-size: 14px; color: var(--muted); }}
+      input {{
+        width: 100%;
+        border: 1px solid rgba(20,32,51,.16);
+        border-radius: 14px;
+        padding: 13px 14px;
+        font-size: 15px;
+        outline: none;
+        background: rgba(255,255,255,.92);
+      }}
+      input:focus {{
+        border-color: rgba(15,111,255,.58);
+        box-shadow: 0 0 0 4px rgba(15,111,255,.12);
+      }}
+      button {{
+        width: 100%;
+        margin-top: 16px;
+        border: 0;
+        border-radius: 14px;
+        padding: 13px 16px;
+        font-size: 15px;
+        font-weight: 600;
+        color: #fff;
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+        cursor: pointer;
+      }}
+      button:hover {{ filter: brightness(.98); }}
+      .error {{
+        margin-bottom: 14px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--error-bg);
+        color: var(--error-fg);
+        font-size: 14px;
+      }}
+      .foot {{
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+      }}
+    </style>
+  </head>
+  <body>
+    <form class="card" method="post" action="/__login">
+      <div class="mark">CM</div>
+      <h1>访问受保护</h1>
+      <p>当前 CodexManager Web 已启用访问密码，请先验证后再进入管理页面。</p>
+      {error_html}
+      <label for="password">访问密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
+      <button type="submit">进入控制台</button>
+      <div class="foot">密码可在桌面端右上角安全入口或设置页中修改。</div>
+    </form>
+  </body>
+</html>
+"#
+    )
+}
+
 fn should_spawn_service() -> bool {
     // 默认允许（双击就能用）。容器/特殊场景可通过该变量禁用。
     read_env_trim("CODEXMANAGER_WEB_NO_SPAWN_SERVICE").is_none()
@@ -197,9 +325,11 @@ fn service_bin_path(dir: &Path) -> PathBuf {
     }
 }
 
-fn spawn_service_detached(dir: &Path) -> std::io::Result<()> {
+fn spawn_service_detached(dir: &Path, service_addr: &str) -> std::io::Result<()> {
     let bin = service_bin_path(dir);
     let mut cmd = Command::new(bin);
+    let bind_addr = codexmanager_service::listener_bind_addr(service_addr);
+    cmd.env("CODEXMANAGER_SERVICE_ADDR", bind_addr);
 
     #[cfg(target_os = "windows")]
     {
@@ -235,7 +365,7 @@ async fn ensure_service_running(
         ));
     }
 
-    if let Err(err) = spawn_service_detached(dir) {
+    if let Err(err) = spawn_service_detached(dir, service_addr) {
         return Some(format!("failed to spawn service: {err}"));
     }
     *spawned_service.lock().await = true;
@@ -344,6 +474,116 @@ async fn gateway_proxy(
     out
 }
 
+fn current_web_access_password_hash() -> Option<String> {
+    codexmanager_service::current_web_access_password_hash()
+}
+
+fn build_web_auth_cookie_value(password_hash: &str, rpc_token: &str) -> String {
+    codexmanager_service::build_web_access_session_token(password_hash, rpc_token)
+}
+
+fn parse_cookie_value(headers: &HeaderMap, cookie_name: &str) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';').find_map(|segment| {
+        let (name, value) = segment.trim().split_once('=')?;
+        if name.trim() == cookie_name {
+            Some(value.trim().to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn set_cookie_header_value(value: &str) -> Option<HeaderValue> {
+    HeaderValue::from_str(&format!(
+        "{WEB_AUTH_COOKIE_NAME}={value}; Path=/; HttpOnly; SameSite=Lax"
+    ))
+    .ok()
+}
+
+fn clear_cookie_header_value() -> Option<HeaderValue> {
+    HeaderValue::from_str(&format!(
+        "{WEB_AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+    ))
+    .ok()
+}
+
+fn request_is_authenticated(headers: &HeaderMap, state: &AppState) -> bool {
+    let Some(password_hash) = current_web_access_password_hash() else {
+        return true;
+    };
+    let Some(cookie_value) = parse_cookie_value(headers, WEB_AUTH_COOKIE_NAME) else {
+        return false;
+    };
+    let expected = build_web_auth_cookie_value(&password_hash, &state.rpc_token);
+    cookie_value == expected
+}
+
+async fn web_auth_middleware(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path().to_string();
+    if path == "/__login" || path == "/__logout" {
+        return next.run(request).await;
+    }
+    if request_is_authenticated(request.headers(), state.as_ref()) {
+        return next.run(request).await;
+    }
+    if path.starts_with("/api/") {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "error": "web_auth_required" })),
+        )
+            .into_response();
+    }
+    Redirect::to("/__login").into_response()
+}
+
+async fn login_page(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
+    if current_web_access_password_hash().is_none()
+        || request_is_authenticated(&headers, state.as_ref())
+    {
+        return Redirect::to("/").into_response();
+    }
+    Html(builtin_login_html(None)).into_response()
+}
+
+async fn login_submit(
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<LoginForm>,
+) -> impl IntoResponse {
+    let Some(password_hash) = current_web_access_password_hash() else {
+        return Redirect::to("/").into_response();
+    };
+    if !codexmanager_service::verify_web_access_password(&form.password) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html(builtin_login_html(Some("密码错误，请重试。"))),
+        )
+            .into_response();
+    }
+    let token = build_web_auth_cookie_value(&password_hash, &state.rpc_token);
+    let mut response = Redirect::to("/").into_response();
+    if let Some(header_value) = set_cookie_header_value(&token) {
+        response
+            .headers_mut()
+            .append(header::SET_COOKIE, header_value);
+    }
+    response
+}
+
+async fn logout() -> impl IntoResponse {
+    let mut response = Redirect::to("/__login").into_response();
+    if let Some(header_value) = clear_cookie_header_value() {
+        response
+            .headers_mut()
+            .append(header::SET_COOKIE, header_value);
+    }
+    response
+}
+
 async fn quit(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     if *state.spawned_service.lock().await {
         let addr = state.service_addr.clone();
@@ -443,6 +683,8 @@ async fn run_web_server(
 async fn main() {
     // 先加载同目录 env / 默认 DB / RPC token 文件，做到“解压即用”。
     codexmanager_service::portable::bootstrap_current_process();
+    let _ = codexmanager_service::initialize_storage_if_needed();
+    codexmanager_service::sync_runtime_settings_from_storage();
 
     let service_addr = resolve_service_addr();
     let web_addr = resolve_web_addr();
@@ -476,7 +718,7 @@ async fn main() {
         missing_ui_html,
     });
 
-    let mut app = Router::new()
+    let mut protected_app = Router::new()
         .route("/api/rpc", post(rpc_proxy))
         .route("/v1/{*path}", any(gateway_proxy))
         .route("/__quit", get(quit));
@@ -487,23 +729,31 @@ async fn main() {
     if using_explicit_root || disk_ok {
         if disk_ok {
             let static_service = ServeDir::new(&web_root).not_found_service(ServeFile::new(index));
-            app = app.fallback_service(static_service);
+            protected_app = protected_app.fallback_service(static_service);
         } else {
-            app = app
+            protected_app = protected_app
                 .route("/", get(serve_missing_ui))
                 .route("/{*path}", get(serve_missing_ui));
         }
     } else if embedded_ui::has_embedded_ui() {
-        app = app
+        protected_app = protected_app
             .route("/", get(serve_embedded_index))
             .route("/{*path}", get(serve_embedded_asset));
     } else {
-        app = app
+        protected_app = protected_app
             .route("/", get(serve_missing_ui))
             .route("/{*path}", get(serve_missing_ui));
     }
 
-    let app = app.with_state(state);
+    let protected_app = protected_app.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        web_auth_middleware,
+    ));
+    let app = Router::new()
+        .route("/__login", get(login_page).post(login_submit))
+        .route("/__logout", get(logout))
+        .nest("/", protected_app)
+        .with_state(state);
 
     println!("codexmanager-web listening on {web_addr} (service={service_addr})");
 

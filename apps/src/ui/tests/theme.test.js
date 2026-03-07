@@ -1,0 +1,93 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { createThemeController } from "../theme.js";
+
+class FakeClassList {
+  constructor() {
+    this.values = new Set();
+  }
+
+  toggle(name, force) {
+    if (force) {
+      this.values.add(name);
+      return true;
+    }
+    this.values.delete(name);
+    return false;
+  }
+
+  contains(name) {
+    return this.values.has(name);
+  }
+}
+
+class FakeButton {
+  constructor() {
+    this.type = "button";
+    this.className = "";
+    this.dataset = {};
+    this.textContent = "";
+    this.classList = new FakeClassList();
+  }
+}
+
+class FakeThemePanel {
+  constructor() {
+    this.buttons = [];
+    this.innerHTML = "";
+  }
+
+  appendChild(button) {
+    this.buttons.push(button);
+  }
+
+  querySelectorAll(selector) {
+    if (selector === "button[data-theme]") {
+      return this.buttons;
+    }
+    return [];
+  }
+}
+
+test("createThemeController registers dark theme and keeps fallback logic", () => {
+  const originalDocument = globalThis.document;
+  const themePanel = new FakeThemePanel();
+  const themeToggle = { textContent: "" };
+  const persistedThemes = [];
+
+  globalThis.document = {
+    body: { dataset: {} },
+    createElement(tagName) {
+      assert.equal(tagName, "button");
+      return new FakeButton();
+    },
+  };
+
+  try {
+    const controller = createThemeController({
+      dom: {
+        themePanel,
+        themeToggle,
+      },
+      onThemeChange(theme) {
+        persistedThemes.push(theme);
+      },
+    });
+
+    controller.renderThemeButtons();
+    assert.equal(themePanel.buttons.some((button) => button.dataset.theme === "dark"), true);
+
+    controller.setTheme("dark");
+    assert.equal(globalThis.document.body.dataset.theme, "dark");
+    assert.match(themeToggle.textContent, /暗夜黑/);
+    assert.equal(persistedThemes.at(-1), "dark");
+    assert.equal(themePanel.buttons.find((button) => button.dataset.theme === "dark")?.classList.contains("is-active"), true);
+
+    controller.setTheme("unknown-theme");
+    assert.equal(globalThis.document.body.dataset.theme, "tech");
+    assert.equal(persistedThemes.at(-1), "tech");
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});

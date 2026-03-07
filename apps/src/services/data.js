@@ -3,6 +3,7 @@ import * as api from "../api.js";
 
 let requestLogRefreshSeq = 0;
 let requestLogInFlight = null;
+let accountPageRefreshSeq = 0;
 const DEFAULT_REQUEST_LOG_TODAY_SUMMARY = {
   todayTokens: 0,
   cachedInputTokens: 0,
@@ -97,6 +98,54 @@ export async function refreshAccounts() {
   } catch {
     state.manualPreferredAccountId = "";
   }
+}
+
+// 刷新账号页分页数据
+export async function refreshAccountsPage(options = {}) {
+  const latestOnly = options.latestOnly !== false;
+  const seq = ++accountPageRefreshSeq;
+  const res = ensureRpcSuccess(
+    await api.serviceAccountList({
+      page: state.accountPage,
+      pageSize: state.accountPageSize,
+      query: state.accountSearch,
+      filter: state.accountFilter,
+      groupFilter: state.accountGroupFilter,
+    }),
+    "读取账号分页失败",
+  );
+  if (latestOnly && seq !== accountPageRefreshSeq) {
+    return false;
+  }
+
+  const nextItems = Array.isArray(res.items) ? res.items : [];
+  const nextTotal = Number(res.total);
+  const nextPage = Number(res.page);
+  const nextPageSize = Number(res.pageSize);
+  const hasRemotePagination =
+    Number.isFinite(nextTotal)
+    && Number.isFinite(nextPage)
+    && Number.isFinite(nextPageSize);
+
+  // 中文注释：兼容旧版 service。
+  // 旧版 account/list 只有 items，没有 total/page/pageSize；
+  // 如果这里硬切到远端分页模式，账号页会被误判成“0 条数据”。
+  if (!hasRemotePagination) {
+    state.accountPageItems = [];
+    state.accountPageTotal = 0;
+    state.accountPageLoaded = false;
+    if (nextItems.length > 0) {
+      state.accountList = nextItems;
+    }
+    return true;
+  }
+
+  state.accountPageItems = nextItems;
+  state.accountPageTotal = Math.max(0, nextTotal);
+  state.accountPage = nextPage > 0 ? Math.trunc(nextPage) : 1;
+  state.accountPageSize = nextPageSize > 0 ? Math.trunc(nextPageSize) : state.accountPageSize;
+  state.accountPageLoaded = true;
+  return true;
 }
 
 // 刷新用量列表

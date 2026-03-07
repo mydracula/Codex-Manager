@@ -27,11 +27,55 @@ pub struct AccountSummary {
     pub label: String,
     pub group_name: Option<String>,
     pub sort: i64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountListParams {
+    pub page: i64,
+    pub page_size: i64,
+    pub query: Option<String>,
+    pub filter: Option<String>,
+    pub group_filter: Option<String>,
+}
+
+impl Default for AccountListParams {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 5,
+            query: None,
+            filter: None,
+            group_filter: None,
+        }
+    }
+}
+
+impl AccountListParams {
+    pub fn normalized(self) -> Self {
+        // 中文注释：分页参数小于 1 时回退到默认值，避免出现负偏移或零页大小。
+        Self {
+            page: if self.page < 1 { 1 } else { self.page },
+            page_size: if self.page_size < 1 {
+                5
+            } else {
+                self.page_size
+            },
+            query: self.query,
+            filter: self.filter,
+            group_filter: self.group_filter,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountListResult {
     pub items: Vec<AccountSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

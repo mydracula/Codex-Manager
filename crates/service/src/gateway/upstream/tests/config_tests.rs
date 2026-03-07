@@ -43,7 +43,10 @@ fn fallback_base_defaults_to_openai_for_chatgpt_backend() {
         Some("https://api.openai.com/v1")
     );
 
-    std::env::set_var("CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL", "https://api.openai.com/v1");
+    std::env::set_var(
+        "CODEXMANAGER_UPSTREAM_FALLBACK_BASE_URL",
+        "https://api.openai.com/v1",
+    );
     reload_from_env();
     assert_eq!(
         resolve_upstream_fallback_base_url("https://chatgpt.com/backend-api/codex").as_deref(),

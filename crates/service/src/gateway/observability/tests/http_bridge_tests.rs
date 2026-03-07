@@ -31,8 +31,7 @@ fn open_mock_http_response(content_type: &str, body: &str) -> reqwest::blocking:
             .expect("write mock response");
         stream.flush().expect("flush mock response");
     });
-    let response =
-        reqwest::blocking::get(format!("http://{addr}")).expect("request mock upstream");
+    let response = reqwest::blocking::get(format!("http://{addr}")).expect("request mock upstream");
     server.join().expect("join mock upstream server");
     response
 }

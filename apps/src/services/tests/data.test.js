@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { state } from "../../state.js";
-import { refreshRequestLogs } from "../data.js";
+import { refreshAccountsPage, refreshRequestLogs } from "../data.js";
 
 function deferred() {
   let resolve = null;
@@ -76,5 +76,54 @@ test("refreshRequestLogs aborts stale request when query changes", async () => {
   } finally {
     globalThis.window = oldWindow;
     globalThis.fetch = oldFetch;
+  }
+});
+
+test("refreshAccountsPage falls back to local mode when backend does not return pagination fields", async () => {
+  const oldWindow = globalThis.window;
+
+  try {
+    globalThis.window = {
+      __TAURI__: {
+        core: {
+          invoke: async (method, params) => {
+            if (method === "service_account_list") {
+              assert.equal(params.page, 1);
+              assert.equal(params.pageSize, 5);
+              return {
+                result: {
+                  items: [
+                    { id: "acc-1", label: "账号1", groupName: "A组", sort: 1 },
+                    { id: "acc-2", label: "账号2", groupName: "A组", sort: 2 },
+                  ],
+                },
+              };
+            }
+            throw new Error(`unexpected invoke: ${method}`);
+          },
+        },
+      },
+    };
+
+    state.accountList = [];
+    state.accountPage = 1;
+    state.accountPageSize = 5;
+    state.accountSearch = "";
+    state.accountFilter = "all";
+    state.accountGroupFilter = "all";
+    state.accountPageItems = [];
+    state.accountPageTotal = 0;
+    state.accountPageLoaded = false;
+
+    const applied = await refreshAccountsPage({ latestOnly: true });
+
+    assert.equal(applied, true);
+    assert.equal(state.accountPageLoaded, false);
+    assert.equal(state.accountPageTotal, 0);
+    assert.equal(state.accountPageItems.length, 0);
+    assert.equal(state.accountList.length, 2);
+    assert.equal(state.accountList[0].id, "acc-1");
+  } finally {
+    globalThis.window = oldWindow;
   }
 });

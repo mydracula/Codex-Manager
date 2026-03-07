@@ -32,8 +32,10 @@ test("account search input uses debounce before rendering", async () => {
     accountSearch: "",
     accountFilter: "all",
     accountGroupFilter: "all",
+    accountPage: 4,
   };
   let renderCount = 0;
+  let refreshCount = 0;
 
   bindFilterEvents({
     dom: {
@@ -53,6 +55,10 @@ test("account search input uses debounce before rendering", async () => {
     state,
     handleClearRequestLogs: () => {},
     refreshRequestLogs: async () => true,
+    refreshAccountsPage: async () => {
+      refreshCount += 1;
+      return true;
+    },
     renderRequestLogs: () => {},
     renderAccountsView: () => {
       renderCount += 1;
@@ -70,7 +76,9 @@ test("account search input uses debounce before rendering", async () => {
 
   await wait(140);
   assert.equal(renderCount, 1);
+  assert.equal(refreshCount, 1);
   assert.equal(state.accountSearch, "abc");
+  assert.equal(state.accountPage, 1);
   filterAll.dispatch("click", {});
   assert.equal(renderCount, 1);
 });

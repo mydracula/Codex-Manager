@@ -101,13 +101,16 @@ pub(crate) fn route_quality_penalty(account_id: &str) -> i64 {
         - i64::from(record.success_2xx) * 2
 }
 
+pub(super) fn clear_runtime_state() {
+    let lock = ROUTE_QUALITY.get_or_init(|| Mutex::new(RouteQualityState::default()));
+    let mut state = crate::lock_utils::lock_recover(lock, "route_quality_state");
+    state.entries.clear();
+    state.last_cleanup_at = 0;
+}
+
 #[cfg(test)]
 pub(crate) fn clear_route_quality_for_tests() {
-    let lock = ROUTE_QUALITY.get_or_init(|| Mutex::new(RouteQualityState::default()));
-    if let Ok(mut state) = lock.lock() {
-        state.entries.clear();
-        state.last_cleanup_at = 0;
-    }
+    clear_runtime_state();
 }
 
 #[cfg(test)]

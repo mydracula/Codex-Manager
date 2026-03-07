@@ -32,13 +32,6 @@ pub(crate) fn evaluate_snapshot(snap: &UsageSnapshotRecord) -> Availability {
     Availability::Available
 }
 
-pub(crate) fn is_available(snap: Option<&UsageSnapshotRecord>) -> bool {
-    match snap {
-        None => true,
-        Some(record) => matches!(evaluate_snapshot(record), Availability::Available),
-    }
-}
-
 #[cfg(test)]
 #[path = "tests/account_availability_tests.rs"]
 mod tests;

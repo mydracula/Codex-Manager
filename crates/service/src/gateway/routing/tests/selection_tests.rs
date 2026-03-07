@@ -8,7 +8,9 @@ static CANDIDATE_CACHE_TEST_LOCK: Mutex<()> = Mutex::new(());
 fn candidate_snapshot_cache_reuses_recent_snapshot() {
     let _guard = CANDIDATE_CACHE_TEST_LOCK.lock().expect("lock");
     let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
     std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var("CODEXMANAGER_DB_PATH", "selection-cache-test-1");
     super::reload_from_env();
     clear_candidate_cache_for_tests();
 
@@ -67,6 +69,11 @@ fn candidate_snapshot_cache_reuses_recent_snapshot() {
     } else {
         std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
     }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
     super::reload_from_env();
 }
 
@@ -74,7 +81,9 @@ fn candidate_snapshot_cache_reuses_recent_snapshot() {
 fn candidates_follow_account_sort_order() {
     let _guard = CANDIDATE_CACHE_TEST_LOCK.lock().expect("lock");
     let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
     std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "0");
+    std::env::set_var("CODEXMANAGER_DB_PATH", "selection-cache-test-2");
     super::reload_from_env();
     clear_candidate_cache_for_tests();
 
@@ -139,6 +148,11 @@ fn candidates_follow_account_sort_order() {
         std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
     } else {
         std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
     }
     super::reload_from_env();
 }

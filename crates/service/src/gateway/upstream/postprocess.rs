@@ -95,7 +95,6 @@ where
                 }
             }
         }
-
         match retry_stateless_then_optional_alt(
             client,
             method,

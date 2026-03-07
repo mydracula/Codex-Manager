@@ -126,9 +126,14 @@ use upstream::proxy::proxy_validated_request;
 pub(crate) fn reload_runtime_config_from_env() {
     runtime_config::reload_from_env();
     selection::reload_from_env();
+    request_gate::clear_runtime_state();
+    cooldown::clear_runtime_state();
+    route_quality::clear_runtime_state();
     route_hint::reload_from_env();
     upstream::config::reload_from_env();
     trace_log::reload_from_env();
+    http_bridge::reload_from_env();
+    protocol_adapter::reload_env_dependent_state();
 }
 
 pub(crate) fn current_route_strategy() -> &'static str {

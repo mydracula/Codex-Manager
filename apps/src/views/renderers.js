@@ -46,6 +46,7 @@ function renderAccountsOnlyNow(handlers) {
     onOpenUsage: handlers.onOpenUsage,
     onSetCurrentAccount: handlers.onSetCurrentAccount,
     onDelete: handlers.onDeleteAccount,
+    onRefreshPage: handlers.onRefreshAccountPage,
   });
 }
 

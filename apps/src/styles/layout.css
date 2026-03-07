@@ -1,9 +1,11 @@
 .app-shell {
+    height: 100vh;
+    height: 100dvh;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     position: relative;
-    overflow-x: hidden;
+    overflow: hidden;
 }
 
 .app-shell::before,
@@ -67,15 +69,19 @@
 }
 
 .content {
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
     max-width: var(--content-max-width, none);
     margin: 0 auto;
     padding: 86px clamp(14px, 1.8vw, 26px) 28px;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 18px;
     position: relative;
     z-index: 1;
+    overflow: hidden;
 }
 
 .page-head {
@@ -118,6 +124,15 @@
 
 .top-actions::-webkit-scrollbar {
     display: none;
+}
+
+.top-quick-action {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: var(--btn-pad-y) var(--btn-pad-x);
+    font-size: var(--btn-font-size);
+    line-height: var(--btn-line-height);
+    white-space: nowrap;
 }
 
 .service-setup {
@@ -511,7 +526,29 @@
     min-width: 0;
 }
 
+.settings-top-item-security .settings-top-main {
+    align-items: stretch;
+}
+
+.settings-security-main {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.settings-security-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+}
+
+.settings-security-actions .hint {
+    flex: 1 1 240px;
+}
+
 .settings-top-item-window .settings-top-aside,
+.settings-top-item-window-memory .settings-top-aside,
 .settings-top-item-visual .settings-top-aside {
     align-items: flex-start;
 }
@@ -519,6 +556,161 @@
 .settings-top-item-proxy .settings-inline-input {
     flex: 1 1 0;
     width: auto;
+}
+
+.settings-card-env {
+    gap: 14px;
+}
+
+.settings-env-toolbar {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.92fr) minmax(340px, 1.08fr);
+    gap: 12px 14px;
+    align-items: end;
+}
+
+.settings-env-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.settings-env-field-select .settings-inline-select,
+.settings-env-field-search .settings-inline-input {
+    width: 100%;
+}
+
+.settings-env-field-select .inline-select.settings-inline-select {
+    min-width: 0;
+}
+
+.settings-env-workbench {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+    background:
+        radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--accent) 10%, transparent),
+            transparent 36%
+        ),
+        linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--surface) 74%, #ffffff),
+            color-mix(in srgb, var(--surface-2) 58%, #ffffff)
+        );
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.settings-env-active-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+}
+
+.settings-env-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.settings-env-title {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+}
+
+.settings-env-key {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+    background: color-mix(in srgb, var(--surface) 48%, #ffffff);
+    color: color-mix(in srgb, var(--ink) 88%, var(--accent));
+    font-size: 12px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.settings-env-edit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px 14px;
+    align-items: end;
+}
+
+.settings-env-value-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.settings-env-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.settings-env-actions > button {
+    min-width: 104px;
+}
+
+.settings-env-value-field .settings-inline-input {
+    width: 100%;
+    min-height: 42px;
+}
+
+.settings-env-meta {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, #ffffff);
+    color: color-mix(in srgb, var(--accent) 72%, var(--ink));
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.settings-env-hint {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.settings-env-description {
+    color: color-mix(in srgb, var(--ink) 68%, var(--muted));
+    font-size: 12px;
+    line-height: 1.55;
 }
 
 .settings-card-background {
@@ -666,9 +858,9 @@
     );
     padding: 8px;
     gap: 8px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    overflow-y: visible;
     border-radius: 12px;
 }
 
@@ -697,6 +889,10 @@
 
 .settings-theme .theme-panel button[data-theme="tech"] {
     --theme-chip: #2563eb;
+}
+
+.settings-theme .theme-panel button[data-theme="dark"] {
+    --theme-chip: #1f2937;
 }
 
 .settings-theme .theme-panel button[data-theme="business"] {
@@ -760,4 +956,133 @@
                 var(--theme-chip, var(--accent)) 18%,
                 transparent
             );
+}
+
+/* Dark 主题下，设置页有一批独立浅色控件，需要单独压暗。 */
+body[data-theme="dark"] #pageSettings .settings-sheet {
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 94%, #17263b),
+        color-mix(in srgb, var(--surface) 92%, #09111d)
+    );
+    border-color: color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+body[data-theme="dark"] #pageSettings .settings-grid > .settings-card + .settings-card,
+body[data-theme="dark"] #pageSettings .settings-top-grid,
+body[data-theme="dark"] #pageSettings .settings-top-grid .settings-top-item + .settings-top-item,
+body[data-theme="dark"] #pageSettings .settings-proxy-strip {
+    border-color: color-mix(in srgb, var(--border) 88%, rgba(255, 255, 255, 0.04));
+}
+
+body[data-theme="dark"] #pageSettings .settings-top-label {
+    color: color-mix(in srgb, var(--accent) 78%, #d9e8ff);
+}
+
+body[data-theme="dark"] #pageSettings .settings-inline-tip {
+    border-color: color-mix(in srgb, var(--accent) 16%, var(--border));
+    background: linear-gradient(180deg, #1a2739, #121d2d);
+    color: color-mix(in srgb, var(--muted) 88%, #d0dceb);
+}
+
+body[data-theme="dark"] #pageSettings .settings-inline-tip:hover,
+body[data-theme="dark"] #pageSettings .settings-inline-tip:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border-strong));
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent) 18%, #1b2a40),
+        color-mix(in srgb, var(--accent) 10%, #121d2d)
+    );
+    color: var(--ink-strong);
+}
+
+body[data-theme="dark"] #pageSettings .settings-poll-item {
+    border-color: color-mix(in srgb, var(--accent) 10%, var(--border));
+    background: linear-gradient(180deg, #172436, #101927);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="dark"] #pageSettings .settings-inline-input,
+body[data-theme="dark"] #pageSettings .settings-inline-textarea,
+body[data-theme="dark"] #pageSettings .settings-inline-number,
+body[data-theme="dark"] #pageSettings .settings-inline-select {
+    color: var(--ink);
+    border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+    background: linear-gradient(180deg, #101927, #0d1623);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme="dark"] #pageSettings .settings-inline-input::placeholder,
+body[data-theme="dark"] #pageSettings .settings-inline-textarea::placeholder,
+body[data-theme="dark"] #pageSettings .settings-inline-number::placeholder {
+    color: color-mix(in srgb, var(--muted) 82%, #becbdb);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-workbench {
+    border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
+    background:
+        radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--accent) 18%, transparent),
+            transparent 34%
+        ),
+        linear-gradient(180deg, #142132, #0e1724);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 12px 28px rgba(2, 6, 23, 0.22);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-title,
+body[data-theme="dark"] #pageSettings .settings-env-key,
+body[data-theme="dark"] #pageSettings .settings-env-meta {
+    color: var(--ink);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-key {
+    border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+    background: linear-gradient(180deg, #1a2739, #121d2d);
+    color: color-mix(in srgb, var(--accent) 72%, #d8e7ff);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-meta {
+    border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+    background: linear-gradient(180deg, #19304c, #13253d);
+    color: color-mix(in srgb, var(--accent) 74%, #d8e7ff);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-hint {
+    color: color-mix(in srgb, var(--muted) 88%, #d0dceb);
+}
+
+body[data-theme="dark"] #pageSettings .settings-env-description {
+    color: color-mix(in srgb, var(--ink) 72%, #d8e7ff);
+}
+
+body[data-theme="dark"] #pageSettings .settings-row-actions .hint {
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent) 18%, #1a273a),
+        color-mix(in srgb, var(--accent) 8%, #111b2a)
+    );
+    color: color-mix(in srgb, var(--accent) 74%, #d8e7ff);
+}
+
+body[data-theme="dark"] #pageSettings .switch-track {
+    border-color: color-mix(in srgb, var(--accent) 10%, var(--border-strong));
+    background: linear-gradient(180deg, #182535, #132031);
+}
+
+body[data-theme="dark"] #pageSettings .switch-thumb {
+    background: linear-gradient(180deg, #f4f8ff, #d7e3f6);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+body[data-theme="dark"] #pageSettings .switch-control input:checked + .switch-track {
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent) 76%, #2e5fae),
+        color-mix(in srgb, var(--accent) 68%, #1d4584)
+    );
+    border-color: color-mix(in srgb, var(--accent) 42%, #8fc4ff);
 }

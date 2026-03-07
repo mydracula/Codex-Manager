@@ -6,6 +6,24 @@ use serde_json::Value;
 use std::time::Instant;
 use tiny_http::Request;
 
+fn should_force_connection_close(target_url: &str) -> bool {
+    reqwest::Url::parse(target_url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+        .is_some_and(|host| matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1"))
+}
+
+fn force_connection_close(headers: &mut Vec<(String, String)>) {
+    if let Some((_, value)) = headers
+        .iter_mut()
+        .find(|(name, _)| name.eq_ignore_ascii_case("connection"))
+    {
+        *value = "close".to_string();
+    } else {
+        headers.push(("Connection".to_string(), "close".to_string()));
+    }
+}
+
 fn body_has_encrypted_content_hint(body: &[u8]) -> bool {
     // Fast path: avoid JSON parsing unless we hit the recovery path.
     std::str::from_utf8(body)
@@ -110,8 +128,11 @@ pub(super) fn try_openai_fallback(
         is_stream,
         has_body: !body.is_empty(),
     };
-    let upstream_headers =
+    let mut upstream_headers =
         super::upstream::header_profile::build_codex_upstream_headers(header_input);
+    if should_force_connection_close(&url) {
+        force_connection_close(&mut upstream_headers);
+    }
     if debug {
         log::debug!(
             "event=gateway_upstream_token_source path={} account_id={} token_source=api_key_access_token upstream_base={}",

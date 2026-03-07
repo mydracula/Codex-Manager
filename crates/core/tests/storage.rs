@@ -239,6 +239,216 @@ fn storage_updates_account_status_only_when_changed() {
 }
 
 #[test]
+fn storage_account_usage_filters_support_sql_pagination() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    let accounts = [
+        (
+            "acc-active-1",
+            "active",
+            Some("alpha"),
+            Some(10.0),
+            Some(10.0),
+        ),
+        ("acc-low-1", "active", Some("alpha"), Some(85.0), Some(85.0)),
+        (
+            "acc-inactive-low",
+            "inactive",
+            Some("beta"),
+            Some(90.0),
+            Some(90.0),
+        ),
+        (
+            "acc-healthy-1",
+            "healthy",
+            Some("beta"),
+            Some(30.0),
+            Some(30.0),
+        ),
+        ("acc-no-snapshot", "active", Some("beta"), None, None),
+    ];
+
+    for (idx, (id, status, group_name, primary_used, low_used)) in accounts.iter().enumerate() {
+        storage
+            .insert_account(&Account {
+                id: (*id).to_string(),
+                label: format!("Account {idx}"),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: group_name.map(|value| value.to_string()),
+                sort: idx as i64,
+                status: (*status).to_string(),
+                created_at: now + idx as i64,
+                updated_at: now + idx as i64,
+            })
+            .expect("insert account");
+
+        if let Some(used_percent) = primary_used {
+            storage
+                .insert_usage_snapshot(&UsageSnapshotRecord {
+                    account_id: (*id).to_string(),
+                    used_percent: Some(*used_percent),
+                    window_minutes: Some(300),
+                    resets_at: None,
+                    secondary_used_percent: Some(low_used.expect("secondary used")),
+                    secondary_window_minutes: Some(120),
+                    secondary_resets_at: None,
+                    credits_json: None,
+                    captured_at: now + idx as i64,
+                })
+                .expect("insert usage snapshot");
+        }
+    }
+
+    assert_eq!(
+        storage
+            .account_count_active_available(None, None)
+            .expect("count active available"),
+        3
+    );
+    assert_eq!(
+        storage
+            .account_count_low_quota(None, None)
+            .expect("count low quota"),
+        2
+    );
+
+    let active_page = storage
+        .list_accounts_active_available(None, None, Some((0, 2)))
+        .expect("list active page");
+    let active_ids = active_page
+        .iter()
+        .map(|account| account.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(active_ids, vec!["acc-active-1", "acc-low-1"]);
+
+    let low_alpha = storage
+        .list_accounts_low_quota(None, Some("alpha"), None)
+        .expect("list low alpha");
+    let low_alpha_ids = low_alpha
+        .iter()
+        .map(|account| account.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(low_alpha_ids, vec!["acc-low-1"]);
+}
+
+#[test]
+fn storage_gateway_candidates_exclude_unavailable_or_missing_token_accounts() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    let accounts = [
+        ("acc-ready", "active", 0_i64),
+        ("acc-no-snapshot", "active", 1_i64),
+        ("acc-exhausted", "active", 2_i64),
+        ("acc-partial", "active", 3_i64),
+        ("acc-inactive", "inactive", 4_i64),
+        ("acc-no-token", "active", 5_i64),
+    ];
+    for (id, status, sort) in accounts {
+        storage
+            .insert_account(&Account {
+                id: id.to_string(),
+                label: id.to_string(),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort,
+                status: status.to_string(),
+                created_at: now + sort,
+                updated_at: now + sort,
+            })
+            .expect("insert account");
+    }
+
+    for id in [
+        "acc-ready",
+        "acc-no-snapshot",
+        "acc-exhausted",
+        "acc-partial",
+        "acc-inactive",
+    ] {
+        storage
+            .insert_token(&Token {
+                account_id: id.to_string(),
+                id_token: format!("id-{id}"),
+                access_token: format!("access-{id}"),
+                refresh_token: format!("refresh-{id}"),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert token");
+    }
+
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-ready".to_string(),
+            used_percent: Some(12.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: None,
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert ready usage");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-exhausted".to_string(),
+            used_percent: Some(100.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: None,
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert exhausted usage");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-partial".to_string(),
+            used_percent: Some(20.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(10.0),
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert partial usage");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-inactive".to_string(),
+            used_percent: Some(10.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: None,
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert inactive usage");
+
+    let candidates = storage
+        .list_gateway_candidates()
+        .expect("list gateway candidates");
+    let candidate_ids = candidates
+        .iter()
+        .map(|(account, _)| account.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(candidate_ids, vec!["acc-ready", "acc-no-snapshot"]);
+}
+
+#[test]
 fn latest_usage_snapshots_break_ties_by_latest_id() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");

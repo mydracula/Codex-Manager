@@ -3,6 +3,24 @@ use codexmanager_core::storage::Account;
 use std::time::Instant;
 use tiny_http::Request;
 
+fn should_force_connection_close(target_url: &str) -> bool {
+    reqwest::Url::parse(target_url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+        .is_some_and(|host| matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1"))
+}
+
+fn force_connection_close(headers: &mut Vec<(String, String)>) {
+    if let Some((_, value)) = headers
+        .iter_mut()
+        .find(|(name, _)| name.eq_ignore_ascii_case("connection"))
+    {
+        *value = "close".to_string();
+    } else {
+        headers.push(("Connection".to_string(), "close".to_string()));
+    }
+}
+
 fn extract_prompt_cache_key(body: &[u8]) -> Option<String> {
     if body.is_empty() || body.len() > 64 * 1024 {
         return None;
@@ -100,7 +118,12 @@ pub(super) fn send_upstream_request(
         is_stream,
         has_body: !body.is_empty(),
     };
-    let upstream_headers = super::header_profile::build_codex_upstream_headers(header_input);
+    let mut upstream_headers = super::header_profile::build_codex_upstream_headers(header_input);
+    if should_force_connection_close(target_url) {
+        // 中文注释：本地 loopback mock/代理更容易复用到脏 keep-alive 连接；
+        // 对 localhost/127.0.0.1 强制 close，避免请求落到已失效连接。
+        force_connection_close(&mut upstream_headers);
+    }
     let build_request = |http: &reqwest::blocking::Client| {
         let mut builder = http.request(method.clone(), target_url);
         if let Some(timeout) = super::deadline::send_timeout(request_deadline, is_stream) {

@@ -13,7 +13,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         }
         "gateway/routeStrategy/set" => {
             let strategy = super::str_param(req, "strategy").unwrap_or("");
-            super::value_or_error(crate::gateway::set_route_strategy(strategy).map(|applied| {
+            super::value_or_error(crate::set_gateway_route_strategy(strategy).map(|applied| {
                 serde_json::json!({
                     "strategy": applied
                 })
@@ -38,9 +38,13 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let enabled = super::bool_param(req, "cpaNoCookieHeaderModeEnabled")
                 .or_else(|| super::bool_param(req, "enabled"))
                 .unwrap_or(false);
-            super::as_json(serde_json::json!({
-                "cpaNoCookieHeaderModeEnabled": crate::gateway::set_cpa_no_cookie_header_mode(enabled),
-            }))
+            super::value_or_error(crate::set_gateway_cpa_no_cookie_header_mode(enabled).map(
+                |applied| {
+                    serde_json::json!({
+                        "cpaNoCookieHeaderModeEnabled": applied,
+                    })
+                },
+            ))
         }
         "gateway/backgroundTasks/get" => {
             super::as_json(crate::usage_refresh::background_tasks_settings())
@@ -62,15 +66,15 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 })
                 .or_else(|| super::str_param(req, "url").map(|value| Some(value)));
             let proxy_url = requested.unwrap_or(None);
-            super::value_or_error(crate::gateway::set_upstream_proxy_url(proxy_url).map(
-                |applied| {
+            super::value_or_error(
+                crate::set_gateway_upstream_proxy_url(proxy_url).map(|applied| {
                     serde_json::json!({
                         "proxyUrl": applied,
                         "envKey": "CODEXMANAGER_UPSTREAM_PROXY_URL",
                         "requiresRestart": false,
                     })
-                },
-            ))
+                }),
+            )
         }
         "gateway/backgroundTasks/set" => {
             let patch = crate::usage_refresh::BackgroundTasksSettingsPatch {
@@ -89,7 +93,20 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 http_stream_worker_factor: usize_param(req, "httpStreamWorkerFactor"),
                 http_stream_worker_min: usize_param(req, "httpStreamWorkerMin"),
             };
-            super::as_json(crate::usage_refresh::set_background_tasks_settings(patch))
+            let input = crate::BackgroundTasksInput {
+                usage_polling_enabled: patch.usage_polling_enabled,
+                usage_poll_interval_secs: patch.usage_poll_interval_secs,
+                gateway_keepalive_enabled: patch.gateway_keepalive_enabled,
+                gateway_keepalive_interval_secs: patch.gateway_keepalive_interval_secs,
+                token_refresh_polling_enabled: patch.token_refresh_polling_enabled,
+                token_refresh_poll_interval_secs: patch.token_refresh_poll_interval_secs,
+                usage_refresh_workers: patch.usage_refresh_workers,
+                http_worker_factor: patch.http_worker_factor,
+                http_worker_min: patch.http_worker_min,
+                http_stream_worker_factor: patch.http_stream_worker_factor,
+                http_stream_worker_min: patch.http_stream_worker_min,
+            };
+            super::value_or_error(crate::set_gateway_background_tasks(input))
         }
         _ => return None,
     };

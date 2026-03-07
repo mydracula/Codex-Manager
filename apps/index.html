@@ -55,6 +55,14 @@
                         <div class="service-meta">
                             <div id="serviceHint" class="hint"></div>
                         </div>
+                        <button
+                            id="webSecurityQuickAction"
+                            class="secondary top-quick-action"
+                            type="button"
+                            aria-label="设置 Web 访问密码"
+                        >
+                            ⚙ Web 密码
+                        </button>
                     </div>
                 </section>
 
@@ -204,6 +212,14 @@
                                         刷新所有
                                     </button>
                                     <button
+                                        id="deleteSelectedAccounts"
+                                        class="danger"
+                                        type="button"
+                                        disabled
+                                    >
+                                        删除选中账号
+                                    </button>
+                                    <button
                                         id="removeUnavailableFree"
                                         class="danger"
                                         type="button"
@@ -234,6 +250,15 @@
                             <table class="data-table account-table">
                                 <thead>
                                     <tr>
+                                        <th class="account-select-col">
+                                            <label class="account-select-head">
+                                                <input
+                                                    id="accountSelectAll"
+                                                    type="checkbox"
+                                                />
+                                                <span>全选</span>
+                                            </label>
+                                        </th>
                                         <th>账号</th>
                                         <th>分组</th>
                                         <th>顺序</th>
@@ -244,6 +269,51 @@
                                 </thead>
                                 <tbody id="accountRows"></tbody>
                             </table>
+                        </div>
+                        <div id="accountPagination" class="account-pagination">
+                            <div
+                                id="accountPaginationSummary"
+                                class="account-pagination-summary"
+                            >
+                                共 0 个账号
+                            </div>
+                            <div class="account-pagination-controls">
+                                <label class="account-pagination-size">
+                                    <span>每页</span>
+                                    <select
+                                        id="accountPageSize"
+                                        class="inline-select account-pagination-select"
+                                    >
+                                        <option value="5" selected>5</option>
+                                        <option value="10">10</option>
+                                        <option value="20">20</option>
+                                        <option value="50">50</option>
+                                        <option value="80">80</option>
+                                        <option value="120">120</option>
+                                        <option value="500">500</option>
+                                    </select>
+                                </label>
+                                <button
+                                    id="accountPagePrev"
+                                    class="secondary"
+                                    type="button"
+                                >
+                                    上一页
+                                </button>
+                                <div
+                                    id="accountPageInfo"
+                                    class="account-pagination-info"
+                                >
+                                    第 1 / 1 页
+                                </div>
+                                <button
+                                    id="accountPageNext"
+                                    class="secondary"
+                                    type="button"
+                                >
+                                    下一页
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -543,6 +613,47 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <div
+                                    class="settings-top-item settings-top-item-window-memory"
+                                >
+                                    <label
+                                        class="hint settings-field-label settings-top-label"
+                                        for="lightweightModeOnCloseToTray"
+                                    >
+                                        <span>轻量模式</span>
+                                    </label>
+                                    <div
+                                        class="settings-top-main settings-row-actions"
+                                    >
+                                        <label
+                                            class="update-auto-check switch-control"
+                                            for="lightweightModeOnCloseToTray"
+                                        >
+                                            <input
+                                                id="lightweightModeOnCloseToTray"
+                                                type="checkbox"
+                                            />
+                                            <span
+                                                class="switch-track"
+                                                aria-hidden="true"
+                                            >
+                                                <span
+                                                    class="switch-thumb"
+                                                ></span>
+                                            </span>
+                                            <span>托盘隐藏时释放窗口内存</span>
+                                        </label>
+                                    </div>
+                                    <div
+                                        class="settings-top-aside settings-row-actions"
+                                    >
+                                        <div class="hint">
+                                            仅在“关闭时最小化到托盘”开启后生效；再次打开窗口会稍慢。
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
 
                             <div class="settings-proxy-strip">
@@ -586,6 +697,51 @@
                                             class="hint"
                                         >
                                             保存后立即生效。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-proxy-strip">
+                                <div
+                                    class="settings-top-item settings-top-item-proxy"
+                                >
+                                    <label
+                                        class="hint settings-field-label settings-field-label-with-tip settings-top-label"
+                                        for="serviceListenModeSelect"
+                                    >
+                                        <span>服务监听地址</span>
+                                        <span
+                                            class="settings-inline-tip"
+                                            tabindex="0"
+                                            role="note"
+                                            title="切到 0.0.0.0 后，局域网设备可通过本机实际 IP 访问；仅本机模式更安全。"
+                                            aria-label="服务监听地址说明：可切换为仅本机或全部网卡，保存后需重启服务生效。"
+                                            >?</span
+                                        >
+                                    </label>
+                                    <div class="settings-top-main">
+                                        <select
+                                            id="serviceListenModeSelect"
+                                            class="inline-select settings-inline-select"
+                                        >
+                                            <option value="loopback">
+                                                仅本机（localhost / 127.0.0.1）
+                                            </option>
+                                            <option value="all_interfaces">
+                                                全部网卡（0.0.0.0）
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div
+                                        class="settings-top-aside settings-row-actions"
+                                    >
+                                        <div
+                                            id="serviceListenModeHint"
+                                            class="hint"
+                                        >
+                                            保存后重启服务生效；局域网访问请使用本机实际
+                                            IP。
                                         </div>
                                     </div>
                                 </div>
@@ -863,6 +1019,118 @@
                                     ></div>
                                 </div>
                             </div>
+
+                            <div
+                                class="panel settings-card settings-card-env"
+                            >
+                                <div class="panel-header">
+                                    <div>
+                                        <h3>高级环境变量覆盖</h3>
+                                        <p>
+                                            从数据库直接维护可编辑的
+                                            <code>CODEXMANAGER_*</code>
+                                            配置
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="settings-env-toolbar">
+                                    <label
+                                        class="settings-env-field settings-env-field-select"
+                                        for="envOverrideSelect"
+                                    >
+                                        <span class="hint settings-field-label"
+                                            >选择变量</span
+                                        >
+                                        <select
+                                            id="envOverrideSelect"
+                                            class="inline-select settings-inline-select"
+                                        ></select>
+                                    </label>
+                                    <label
+                                        class="settings-env-field settings-env-field-search"
+                                        for="envOverrideSearchInput"
+                                    >
+                                        <span class="hint settings-field-label"
+                                            >搜索变量</span
+                                        >
+                                        <input
+                                            id="envOverrideSearchInput"
+                                            class="settings-inline-input"
+                                            type="search"
+                                            placeholder="按中文名称或变量名搜索"
+                                        />
+                                    </label>
+                                </div>
+                                <div class="settings-env-workbench">
+                                    <div class="settings-env-active-head">
+                                        <div class="settings-env-title-group">
+                                            <div
+                                                id="envOverrideNameValue"
+                                                class="settings-env-title"
+                                            >
+                                                未选择
+                                            </div>
+                                            <code
+                                                id="envOverrideKeyValue"
+                                                class="settings-env-key mono"
+                                                >-</code
+                                            >
+                                        </div>
+                                        <div
+                                            id="envOverrideMeta"
+                                            class="settings-env-meta"
+                                        >
+                                            请先选择变量
+                                        </div>
+                                    </div>
+                                    <div class="settings-env-edit-row">
+                                        <label
+                                            class="settings-env-value-field"
+                                            for="envOverrideValueInput"
+                                        >
+                                            <span
+                                                class="hint settings-field-label"
+                                                >当前值</span
+                                            >
+                                            <input
+                                                id="envOverrideValueInput"
+                                                class="settings-inline-input mono"
+                                                type="text"
+                                                placeholder="输入当前变量值"
+                                            />
+                                        </label>
+                                        <div class="settings-env-actions">
+                                            <button
+                                                id="envOverridesSave"
+                                                class="secondary"
+                                                type="button"
+                                            >
+                                                保存
+                                            </button>
+                                            <button
+                                                id="envOverrideReset"
+                                                class="ghost"
+                                                type="button"
+                                            >
+                                                恢复默认
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div
+                                        class="hint settings-env-hint"
+                                    >
+                                        <div id="envOverridesHint">
+                                            选择变量后可直接修改值；恢复默认会回退到启动时环境值或内置默认值。
+                                        </div>
+                                        <div
+                                            id="envOverrideDescription"
+                                            class="settings-env-description"
+                                        >
+                                            这里会显示当前变量的作用说明。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1013,6 +1281,54 @@
                 <div class="modal-footer">
                     <button id="submitApiKey">完成</button>
                     <button id="cancelApiKey" class="secondary">关闭</button>
+                </div>
+            </div>
+        </div>
+        <div id="modalWebSecurity" class="modal">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Web 访问密码</h3>
+                    <button id="closeWebSecurityModal" class="ghost">
+                        关闭
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p id="webAccessPasswordQuickStatus" class="hint">
+                        当前未启用 Web 访问密码。
+                    </p>
+                    <p class="hint">
+                        密码保存后，`codexmanager-web` 会要求先验证再进入页面。
+                    </p>
+                    <input
+                        id="webAccessPasswordQuickInput"
+                        class="mono"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder="输入新密码"
+                    />
+                    <input
+                        id="webAccessPasswordQuickConfirm"
+                        class="mono"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder="再次输入以确认"
+                    />
+                </div>
+                <div class="modal-footer">
+                    <button
+                        id="webAccessPasswordQuickSave"
+                        class="secondary"
+                        type="button"
+                    >
+                        保存密码
+                    </button>
+                    <button
+                        id="webAccessPasswordQuickClear"
+                        class="ghost"
+                        type="button"
+                    >
+                        清除密码
+                    </button>
                 </div>
             </div>
         </div>

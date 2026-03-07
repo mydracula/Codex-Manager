@@ -237,14 +237,18 @@ fn collect_response_output_text(value: &Value, output: &mut String) {
 
 fn output_text_limit_bytes() -> usize {
     let _ = OUTPUT_TEXT_LIMIT_LOADED.get_or_init(|| {
-        let raw = std::env::var(OUTPUT_TEXT_LIMIT_BYTES_ENV).unwrap_or_default();
-        let limit = raw
-            .trim()
-            .parse::<usize>()
-            .unwrap_or(DEFAULT_OUTPUT_TEXT_LIMIT_BYTES);
-        OUTPUT_TEXT_LIMIT_BYTES.store(limit, Ordering::Relaxed);
+        reload_from_env();
     });
     OUTPUT_TEXT_LIMIT_BYTES.load(Ordering::Relaxed)
+}
+
+pub(super) fn reload_from_env() {
+    let raw = std::env::var(OUTPUT_TEXT_LIMIT_BYTES_ENV).unwrap_or_default();
+    let limit = raw
+        .trim()
+        .parse::<usize>()
+        .unwrap_or(DEFAULT_OUTPUT_TEXT_LIMIT_BYTES);
+    OUTPUT_TEXT_LIMIT_BYTES.store(limit, Ordering::Relaxed);
 }
 
 fn truncate_str_to_bytes(text: &str, max_bytes: usize) -> &str {
@@ -1310,8 +1314,13 @@ pub(super) fn respond_with_upstream(
                 let upstream_error_hint =
                     extract_error_hint_from_body(status.0, upstream_body.as_ref());
                 let len = Some(upstream_body.len());
-                let response =
-                    Response::new(status, headers, std::io::Cursor::new(upstream_body.to_vec()), len, None);
+                let response = Response::new(
+                    status,
+                    headers,
+                    std::io::Cursor::new(upstream_body.to_vec()),
+                    len,
+                    None,
+                );
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
                 return Ok(UpstreamResponseBridgeResult {
                     usage,

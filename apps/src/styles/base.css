@@ -62,6 +62,39 @@ body[data-theme="business"] {
   --pill-active-shadow: 0 6px 14px rgba(199, 141, 47, 0.24);
 }
 
+body[data-theme="dark"] {
+  --ink: #d7e2f0;
+  --ink-strong: #f4f7fb;
+  --muted: #8ea0b8;
+  --surface: #0a1220;
+  --surface-2: #111c2e;
+  --card: #152235;
+  --border: rgba(148, 163, 184, 0.22);
+  --border-strong: rgba(148, 163, 184, 0.34);
+  --shadow: 0 18px 40px rgba(2, 6, 23, 0.52);
+  --shadow-soft: 0 10px 24px rgba(2, 6, 23, 0.34);
+  --accent: #4da3ff;
+  --accent-2: #39c48a;
+  --accent-3: #70c7ff;
+  --danger: #ff7272;
+  --ok: #4ed39a;
+  --warn: #ffbf52;
+  --paper: #0b1321;
+  --paper-2: #0f1828;
+  --top-nav-bg: rgba(10, 16, 28, 0.88);
+  --btn-primary-bg: linear-gradient(135deg, #318fff, #2167d8);
+  --btn-primary-shadow: 0 10px 24px rgba(33, 103, 216, 0.32);
+  --btn-secondary-bg: #18263a;
+  --pill-nav-bg: rgba(13, 21, 35, 0.92);
+  --pill-active-bg: linear-gradient(135deg, #318fff, #2167d8);
+  --pill-active-shadow: 0 10px 22px rgba(33, 103, 216, 0.32);
+  color-scheme: dark;
+  background:
+    radial-gradient(46% 60% at 0% 0%, rgba(49, 143, 255, 0.18), transparent 74%),
+    radial-gradient(38% 52% at 100% 0%, rgba(57, 196, 138, 0.12), transparent 76%),
+    linear-gradient(180deg, #06101c 0%, #0a1220 48%, #111b2c 100%);
+}
+
 body[data-theme="mint"] {
   --ink: #20413e;
   --ink-strong: #102a28;
@@ -230,4 +263,142 @@ input:focus-visible,
 select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 44%, transparent);
   outline-offset: 2px;
+}
+
+/* Dark 主题对现有亮色组件做定向压暗，避免变量切换后仍保留白底。 */
+body[data-theme="dark"] .top-nav,
+body[data-theme="dark"] .pill-nav,
+body[data-theme="dark"] .theme-panel,
+body[data-theme="dark"] .account-ops-menu,
+body[data-theme="dark"] .accounts-toolbar,
+body[data-theme="dark"] .card,
+body[data-theme="dark"] .panel,
+body[data-theme="dark"] .stat-card,
+body[data-theme="dark"] .modal-card,
+body[data-theme="dark"] .startup-mask-card {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 94%, #1b2a40),
+      color-mix(in srgb, var(--surface) 88%, #0c1524)
+    );
+  border-color: color-mix(in srgb, var(--accent) 10%, var(--border));
+  box-shadow: var(--shadow);
+}
+
+body[data-theme="dark"] .dashboard-compact .stat-card,
+body[data-theme="dark"] .cell,
+body[data-theme="dark"] .data-table tbody td {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 94%, #1b2a40),
+      color-mix(in srgb, var(--surface) 90%, #0b1321)
+    );
+}
+
+body[data-theme="dark"] .data-table tbody tr:nth-child(even) td {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 92%, #18263a),
+      color-mix(in srgb, var(--surface) 92%, #0b1321)
+    );
+}
+
+body[data-theme="dark"] .data-table tbody tr:hover td,
+body[data-theme="dark"] .cell:hover {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 16%, var(--card)),
+      color-mix(in srgb, var(--accent) 10%, var(--surface))
+    );
+}
+
+body[data-theme="dark"] button.secondary,
+body[data-theme="dark"] button.ghost,
+body[data-theme="dark"] .service-setup button.secondary,
+body[data-theme="dark"] .theme-toggle,
+body[data-theme="dark"] .theme-panel button.secondary {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 16%, var(--border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #22334d 72%, var(--card)),
+      color-mix(in srgb, #152235 72%, var(--surface))
+    );
+  box-shadow: var(--shadow-soft);
+}
+
+body[data-theme="dark"] button.ghost {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-2) 92%, #18263a),
+      color-mix(in srgb, var(--surface) 94%, #0b1321)
+    );
+}
+
+body[data-theme="dark"] .theme-toggle[aria-expanded="true"],
+body[data-theme="dark"] .theme-panel button.secondary.is-active,
+body[data-theme="dark"] .segmented button.active,
+body[data-theme="dark"] .pill-nav button.active {
+  color: #f8fbff;
+}
+
+body[data-theme="dark"] .requestlog-table thead th,
+body[data-theme="dark"] .segmented,
+body[data-theme="dark"] .account-pagination,
+body[data-theme="dark"] .app-toast {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 92%, #1b2a40),
+      color-mix(in srgb, var(--surface) 92%, #0c1524)
+    );
+}
+
+body[data-theme="dark"] .app-toast.is-error {
+  border-color: rgba(255, 114, 114, 0.34);
+  background: linear-gradient(180deg, rgba(116, 35, 35, 0.92), rgba(84, 22, 22, 0.96));
+  color: #ffd7d7;
+}
+
+body[data-theme="dark"] .search-field input,
+body[data-theme="dark"] .search-field select,
+body[data-theme="dark"] .toolbar-actions input,
+body[data-theme="dark"] .sort-input,
+body[data-theme="dark"] .modal-body input,
+body[data-theme="dark"] .modal-body select,
+body[data-theme="dark"] .inline-select {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+  background: color-mix(in srgb, var(--surface-2) 88%, #162235);
+}
+
+body[data-theme="dark"] .search-field input::placeholder,
+body[data-theme="dark"] .toolbar-actions input::placeholder,
+body[data-theme="dark"] .modal-body input::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, #b7c4d6);
+}
+
+body[data-theme="dark"] .stat-icon {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+body[data-theme="dark"] .accounts-refresh-progress {
+  color: #d5e8ff;
+  background: rgba(34, 58, 93, 0.86);
+  border-color: rgba(89, 140, 216, 0.3);
+}
+
+body[data-theme="dark"] .startup-mask {
+  background: rgba(5, 10, 18, 0.78);
+}
+
+body[data-theme="dark"] .startup-spinner {
+  border-color: rgba(77, 163, 255, 0.18);
+  border-top-color: var(--accent);
 }

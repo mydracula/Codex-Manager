@@ -222,6 +222,7 @@ dependencies = [
 name = "codexmanager-start"
 version = "0.1.5"
 dependencies = [
+ "codexmanager-service",
  "ctrlc",
  "webbrowser",
  "winres",
@@ -237,6 +238,8 @@ dependencies = [
  "include_dir",
  "mime_guess",
  "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
  "tower-http",
  "webbrowser",

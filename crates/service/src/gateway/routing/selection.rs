@@ -1,10 +1,8 @@
-use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
-use std::collections::HashMap;
+use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::account_availability::is_available;
 use crate::usage_account_meta::{derive_account_meta, patch_account_meta_in_place};
 
 static CANDIDATE_SNAPSHOT_CACHE: OnceLock<Mutex<Option<CandidateSnapshotCache>>> = OnceLock::new();
@@ -35,33 +33,11 @@ pub(crate) fn collect_gateway_candidates(
 
 fn collect_gateway_candidates_uncached(storage: &Storage) -> Result<Vec<(Account, Token)>, String> {
     // 选择可用账号作为网关上游候选
-    let accounts = storage.list_accounts().map_err(|e| e.to_string())?;
-    let tokens = storage.list_tokens().map_err(|e| e.to_string())?;
-    let snaps = storage
-        .latest_usage_snapshots_by_account()
+    let candidates = storage
+        .list_gateway_candidates()
         .map_err(|e| e.to_string())?;
-    let mut token_map = HashMap::new();
-    for token in tokens {
-        token_map.insert(token.account_id.clone(), token);
-    }
-    let mut snap_map = HashMap::new();
-    for snap in snaps {
-        snap_map.insert(snap.account_id.clone(), snap);
-    }
-
-    let mut out = Vec::new();
-    for account in &accounts {
-        if account.status != "active" {
-            continue;
-        }
-        let token = match token_map.get(&account.id) {
-            Some(token) => token.clone(),
-            None => continue,
-        };
-        let usage = snap_map.get(&account.id);
-        if !is_available(usage) {
-            continue;
-        }
+    let mut out = Vec::with_capacity(candidates.len());
+    for (account, token) in candidates {
         let mut candidate_account = account.clone();
         let (chatgpt_account_id, workspace_id) = derive_account_meta(&token);
         if patch_account_meta_in_place(&mut candidate_account, chatgpt_account_id, workspace_id) {
@@ -71,7 +47,7 @@ fn collect_gateway_candidates_uncached(storage: &Storage) -> Result<Vec<(Account
         out.push((candidate_account, token));
     }
     if out.is_empty() {
-        log_no_candidates(&accounts, &token_map, &snap_map);
+        log_no_candidates(storage);
     }
     Ok(out)
 }
@@ -81,7 +57,7 @@ fn read_candidate_cache() -> Option<Vec<(Account, Token)>> {
     if ttl.is_zero() {
         return None;
     }
-    let db_path = current_db_path();
+    let db_path = cache_identity()?;
     let now = Instant::now();
     let mutex = CANDIDATE_SNAPSHOT_CACHE.get_or_init(|| Mutex::new(None));
     let mut guard = match mutex.lock() {
@@ -106,7 +82,9 @@ fn write_candidate_cache(candidates: Vec<(Account, Token)>) {
     if ttl.is_zero() {
         return;
     }
-    let db_path = current_db_path();
+    let Some(db_path) = cache_identity() else {
+        return;
+    };
     let expires_at = Instant::now() + ttl;
     let mutex = CANDIDATE_SNAPSHOT_CACHE.get_or_init(|| Mutex::new(None));
     let mut guard = match mutex.lock() {
@@ -123,6 +101,14 @@ fn write_candidate_cache(candidates: Vec<(Account, Token)>) {
     });
 }
 
+fn cache_identity() -> Option<String> {
+    let db_path = current_db_path();
+    if db_path.trim().is_empty() || db_path == "<unset>" {
+        return None;
+    }
+    Some(db_path)
+}
+
 fn candidate_cache_ttl() -> Duration {
     ensure_selection_config_loaded();
     let ttl_ms = CANDIDATE_CACHE_TTL_MS.load(Ordering::Relaxed);
@@ -134,11 +120,20 @@ fn current_db_path() -> String {
     crate::lock_utils::read_recover(current_db_path_cell(), "current_db_path").clone()
 }
 
-fn log_no_candidates(
-    accounts: &[Account],
-    token_map: &HashMap<String, Token>,
-    snap_map: &HashMap<String, UsageSnapshotRecord>,
-) {
+fn log_no_candidates(storage: &Storage) {
+    let accounts = storage.list_accounts().unwrap_or_default();
+    let tokens = storage.list_tokens().unwrap_or_default();
+    let snaps = storage
+        .latest_usage_snapshots_by_account()
+        .unwrap_or_default();
+    let token_map = tokens
+        .into_iter()
+        .map(|token| (token.account_id.clone(), token))
+        .collect::<std::collections::HashMap<_, _>>();
+    let snap_map = snaps
+        .into_iter()
+        .map(|snap| (snap.account_id.clone(), snap))
+        .collect::<std::collections::HashMap<_, _>>();
     let db_path = current_db_path();
     log::warn!(
         "gateway no candidates: db_path={}, accounts={}, tokens={}, snapshots={}",
@@ -172,6 +167,7 @@ pub(super) fn reload_from_env() {
     let db_path = std::env::var("CODEXMANAGER_DB_PATH").unwrap_or_else(|_| "<unset>".to_string());
     let mut cached = crate::lock_utils::write_recover(current_db_path_cell(), "current_db_path");
     *cached = db_path;
+    clear_candidate_cache();
 }
 
 fn ensure_selection_config_loaded() {
@@ -182,8 +178,7 @@ fn current_db_path_cell() -> &'static RwLock<String> {
     CURRENT_DB_PATH.get_or_init(|| RwLock::new("<unset>".to_string()))
 }
 
-#[cfg(test)]
-fn clear_candidate_cache_for_tests() {
+fn clear_candidate_cache() {
     if let Some(mutex) = CANDIDATE_SNAPSHOT_CACHE.get() {
         let mut guard = match mutex.lock() {
             Ok(guard) => guard,
@@ -194,6 +189,11 @@ fn clear_candidate_cache_for_tests() {
         };
         *guard = None;
     }
+}
+
+#[cfg(test)]
+fn clear_candidate_cache_for_tests() {
+    clear_candidate_cache();
 }
 
 #[cfg(test)]

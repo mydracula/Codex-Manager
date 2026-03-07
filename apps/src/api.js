@@ -274,12 +274,56 @@ export async function serviceInitialize() {
   return invoke("service_initialize", withAddr());
 }
 
-// 账号
-export async function serviceAccountList() {
+export async function serviceListenConfigGet() {
   if (!isTauriRuntime()) {
-    return rpcInvoke("account/list");
+    return rpcInvoke("service/listenConfig/get");
   }
-  return invoke("service_account_list", withAddr());
+  return invoke("service_listen_config_get", {});
+}
+
+export async function serviceListenConfigSet(mode) {
+  const normalized = mode == null ? "" : String(mode);
+  if (!isTauriRuntime()) {
+    return rpcInvoke("service/listenConfig/set", { mode: normalized });
+  }
+  return invoke("service_listen_config_set", { mode: normalized });
+}
+
+// 账号
+function normalizeAccountListOptions(options = {}) {
+  const source = options && typeof options === "object" ? options : {};
+  const normalized = {};
+  const page = Number(source.page);
+  const pageSize = Number(source.pageSize);
+  const query = typeof source.query === "string" ? source.query.trim() : "";
+  const filter = typeof source.filter === "string" ? source.filter.trim() : "";
+  const groupFilter = typeof source.groupFilter === "string" ? source.groupFilter.trim() : "";
+
+  if (Number.isFinite(page) && page > 0) {
+    normalized.page = Math.trunc(page);
+  }
+  if (Number.isFinite(pageSize) && pageSize > 0) {
+    normalized.pageSize = Math.trunc(pageSize);
+  }
+  if (query) {
+    normalized.query = query;
+  }
+  if (filter) {
+    normalized.filter = filter;
+  }
+  if (groupFilter && groupFilter !== "all") {
+    normalized.groupFilter = groupFilter;
+  }
+  return normalized;
+}
+
+export async function serviceAccountList(options = {}) {
+  const params = normalizeAccountListOptions(options);
+  const payload = Object.keys(params).length > 0 ? params : undefined;
+  if (!isTauriRuntime()) {
+    return rpcInvoke("account/list", payload);
+  }
+  return invoke("service_account_list", payload ? withAddr(payload) : withAddr());
 }
 
 export async function serviceAccountDelete(accountId) {
@@ -287,6 +331,16 @@ export async function serviceAccountDelete(accountId) {
     return rpcInvoke("account/delete", { accountId });
   }
   return invoke("service_account_delete", withAddr({ accountId }));
+}
+
+export async function serviceAccountDeleteMany(accountIds) {
+  const normalizedIds = Array.isArray(accountIds)
+    ? accountIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (!isTauriRuntime()) {
+    return rpcInvoke("account/deleteMany", { accountIds: normalizedIds });
+  }
+  return invoke("service_account_delete_many", withAddr({ accountIds: normalizedIds }));
 }
 
 export async function serviceAccountDeleteUnavailableFree() {
@@ -612,6 +666,21 @@ export async function appCloseToTrayOnCloseSet(enabled) {
   }
   const value = await invoke("app_close_to_tray_on_close_set", { enabled: Boolean(enabled) });
   return value === true;
+}
+
+export async function appSettingsGet() {
+  if (!isTauriRuntime()) {
+    return rpcInvoke("appSettings/get");
+  }
+  return invoke("app_settings_get", {});
+}
+
+export async function appSettingsSet(patch = {}) {
+  const payload = patch && typeof patch === "object" ? patch : {};
+  if (!isTauriRuntime()) {
+    return rpcInvoke("appSettings/set", payload);
+  }
+  return invoke("app_settings_set", { patch: payload });
 }
 
 // 应用更新

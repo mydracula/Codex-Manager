@@ -97,8 +97,16 @@
     grid-column: 2;
   }
 
+  .settings-security-main {
+    grid-template-columns: 1fr;
+  }
+
   .settings-workers-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-env-sections {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -215,6 +223,25 @@
     min-width: 0;
   }
 
+  .settings-env-toolbar,
+  .settings-env-edit-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-env-active-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settings-env-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .settings-env-actions > button {
+    min-width: 0;
+  }
+
   .settings-row-proxy {
     flex-wrap: wrap;
     align-items: flex-start;
@@ -242,6 +269,10 @@
   .settings-top-main,
   .settings-top-aside {
     grid-column: auto;
+  }
+
+  .settings-security-actions .hint {
+    flex-basis: 100%;
   }
 
   .settings-top-aside .settings-inline-select {

@@ -156,6 +156,11 @@ pub(super) fn convert_openai_chat_stream_chunk_with_tool_name_restore_map(
     )
 }
 
+pub(super) fn reload_env_dependent_state() {
+    prompt_cache::clear_runtime_state();
+    prompt_cache::reload_from_env();
+}
+
 #[cfg(test)]
 #[path = "protocol_adapter/tests/protocol_adapter_tests.rs"]
 mod tests;

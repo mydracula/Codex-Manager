@@ -11,6 +11,7 @@ export function bindFilterEvents({
   state,
   handleClearRequestLogs,
   refreshRequestLogs,
+  refreshAccountsPage,
   renderRequestLogs,
   renderAccountsView,
   updateRequestLogFilterButtons,
@@ -66,6 +67,21 @@ export function bindFilterEvents({
     Promise.resolve().then(flush);
   };
 
+  const runAccountPageRefresh = async () => {
+    if (typeof refreshAccountsPage !== "function") {
+      scheduleAccountsRender();
+      return;
+    }
+    try {
+      const applied = await refreshAccountsPage({ latestOnly: true, silent: true });
+      if (applied !== false) {
+        scheduleAccountsRender();
+      }
+    } catch (err) {
+      console.error("[accounts] refresh failed", err);
+    }
+  };
+
   if (dom.refreshRequestLogs) {
     dom.refreshRequestLogs.addEventListener("click", async () => {
       await runRequestLogRefresh(state.requestLogQuery);
@@ -113,6 +129,7 @@ export function bindFilterEvents({
         return;
       }
       state.accountSearch = query;
+      state.accountPage = 1;
       const currentSeq = ++accountSearchInputSeq;
       if (accountSearchTimer) {
         clearTimeout(accountSearchTimer);
@@ -121,7 +138,7 @@ export function bindFilterEvents({
         if (currentSeq !== accountSearchInputSeq) {
           return;
         }
-        scheduleAccountsRender();
+        void runAccountPageRefresh();
       }, 220);
     });
   }
@@ -133,7 +150,8 @@ export function bindFilterEvents({
         return;
       }
       state.accountGroupFilter = nextGroup;
-      scheduleAccountsRender();
+      state.accountPage = 1;
+      void runAccountPageRefresh();
     });
   }
 
@@ -148,8 +166,9 @@ export function bindFilterEvents({
       return;
     }
     state.accountFilter = filter;
+    state.accountPage = 1;
     updateFilterButtons();
-    scheduleAccountsRender();
+    void runAccountPageRefresh();
   };
 
   if (dom.filterAll) dom.filterAll.addEventListener("click", () => setFilter("all"));

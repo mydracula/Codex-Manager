@@ -48,7 +48,9 @@
 .page.active {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 16px;
+  min-height: 0;
 }
 
 /* 各页面统一内容版心，避免大屏拉伸导致信息稀疏。 */
@@ -65,6 +67,19 @@
 
 #pageDashboard.page.active {
   gap: 12px;
+  overflow: auto;
+}
+
+#pageAccounts.page.active {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#pageApiKeys.page.active,
+#pageRequestLogs.page.active,
+#pageSettings.page.active {
+  overflow: auto;
 }
 
 .stats-grid {
@@ -296,6 +311,20 @@
   transition: transform 0.2s ease, border-color 0.2s ease;
 }
 
+#pageAccounts .panel {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#pageAccounts .table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .stat-card:hover,
 .card:hover,
 .panel:hover {
@@ -434,9 +463,65 @@
   justify-content: flex-end;
 }
 
+.account-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  position: static;
+  padding-top: 14px;
+  margin-top: auto;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) 86%, transparent),
+    color-mix(in srgb, var(--card) 98%, #ffffff)
+  );
+  backdrop-filter: blur(6px);
+}
+
+.account-pagination-summary {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.account-pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.account-pagination-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.account-pagination-select {
+  min-width: 88px;
+  min-height: 34px;
+  font-size: 12px;
+}
+
+.account-pagination-info {
+  min-width: 96px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .table-wrap {
   width: 100%;
-  overflow-x: auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .requestlog-wrap {

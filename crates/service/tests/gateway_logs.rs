@@ -20,6 +20,7 @@ struct EnvGuard {
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 static TEST_DIR_SEQ: AtomicUsize = AtomicUsize::new(0);
+static TEST_PORT_SEQ: AtomicUsize = AtomicUsize::new(41000);
 
 fn lock_env() -> std::sync::MutexGuard<'static, ()> {
     // 中文注释：若某个测试 panic 导致锁被 poison，不应让后续测试直接二次失败。
@@ -35,6 +36,18 @@ fn new_test_dir(prefix: &str) -> PathBuf {
     dir.push(format!("{prefix}-{}-{seq}", std::process::id()));
     let _ = fs::create_dir_all(&dir);
     dir
+}
+
+fn bind_test_listener(label: &str) -> TcpListener {
+    for _ in 0..1024 {
+        let port = TEST_PORT_SEQ.fetch_add(1, Ordering::Relaxed) as u16;
+        match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(listener) => return listener,
+            Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(err) => panic!("bind {label} port {port} failed: {err}"),
+        }
+    }
+    panic!("exhausted test ports for {label}");
 }
 
 impl EnvGuard {
@@ -186,16 +199,29 @@ struct CapturedUpstreamRequest {
     body: Vec<u8>,
 }
 
-fn read_http_request_once(stream: &mut TcpStream) -> CapturedUpstreamRequest {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+fn try_read_http_request_once(stream: &mut TcpStream) -> Option<CapturedUpstreamRequest> {
+    // 中文注释：部分测试会命中 reqwest keep-alive 复用，下一轮 mock listener 可能先收到
+    // 一个“已建立但没有发任何 HTTP 头”的残留连接；这里把它视作噪声并忽略。
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(300)));
 
     let mut raw = Vec::new();
     let mut buf = [0u8; 4096];
     let mut header_end = None;
     while header_end.is_none() {
-        let read = stream.read(&mut buf).expect("read upstream headers");
+        let read = match stream.read(&mut buf) {
+            Ok(read) => read,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                return None;
+            }
+            Err(_) => return None,
+        };
         if read == 0 {
-            break;
+            return None;
         }
         raw.extend_from_slice(&buf[..read]);
         header_end = raw
@@ -203,10 +229,10 @@ fn read_http_request_once(stream: &mut TcpStream) -> CapturedUpstreamRequest {
             .position(|window| window == b"\r\n\r\n")
             .map(|idx| idx + 4);
     }
-    let header_end = header_end.expect("upstream header terminator");
+    let header_end = header_end?;
     let header_text = String::from_utf8_lossy(&raw[..header_end]).to_string();
     let mut lines = header_text.split("\r\n").filter(|line| !line.is_empty());
-    let request_line = lines.next().expect("upstream request line");
+    let request_line = lines.next()?;
     let path = request_line
         .split_whitespace()
         .nth(1)
@@ -227,19 +253,57 @@ fn read_http_request_once(stream: &mut TcpStream) -> CapturedUpstreamRequest {
     }
 
     while raw.len() < header_end + content_length {
-        let read = stream.read(&mut buf).expect("read upstream body");
+        let read = match stream.read(&mut buf) {
+            Ok(read) => read,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                return None;
+            }
+            Err(_) => return None,
+        };
         if read == 0 {
-            break;
+            return None;
         }
         raw.extend_from_slice(&buf[..read]);
     }
     let body_end = (header_end + content_length).min(raw.len());
     let body = raw[header_end..body_end].to_vec();
 
-    CapturedUpstreamRequest {
+    Some(CapturedUpstreamRequest {
         path,
         headers,
         body,
+    })
+}
+
+fn accept_http_request(
+    listener: &TcpListener,
+    idle_timeout: Duration,
+) -> Option<(TcpStream, CapturedUpstreamRequest)> {
+    listener
+        .set_nonblocking(true)
+        .expect("set nonblocking listener");
+    let deadline = Instant::now() + idle_timeout;
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                if let Some(captured) = try_read_http_request_once(&mut stream) {
+                    return Some((stream, captured));
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
     }
 }
 
@@ -261,15 +325,15 @@ fn start_mock_upstream_once_with_content_type(
     Receiver<CapturedUpstreamRequest>,
     thread::JoinHandle<()>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock upstream");
+    let listener = bind_test_listener("mock upstream");
     let addr = listener.local_addr().expect("mock upstream addr");
     let response = response_body.as_bytes().to_vec();
     let content_type = content_type.to_string();
     let (tx, rx) = mpsc::channel();
 
     let join = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept upstream");
-        let captured = read_http_request_once(&mut stream);
+        let (mut stream, captured) = accept_http_request(&listener, Duration::from_secs(3))
+            .expect("accept upstream http request");
         let _ = tx.send(captured);
 
         let header = format!(
@@ -293,16 +357,36 @@ fn start_mock_upstream_sequence(
     Receiver<CapturedUpstreamRequest>,
     thread::JoinHandle<()>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock upstream");
+    start_mock_upstream_sequence_lenient(responses, Duration::from_secs(3))
+}
+
+fn start_mock_upstream_sequence_lenient(
+    responses: Vec<(u16, String)>,
+    idle_timeout: Duration,
+) -> (
+    String,
+    Receiver<CapturedUpstreamRequest>,
+    thread::JoinHandle<()>,
+) {
+    let listener = bind_test_listener("mock upstream");
     let addr = listener.local_addr().expect("mock upstream addr");
     let (tx, rx) = mpsc::channel();
 
     let join = thread::spawn(move || {
-        for (status, body) in responses {
-            let (mut stream, _) = listener.accept().expect("accept upstream");
-            let captured = read_http_request_once(&mut stream);
+        let mut idx = 0usize;
+        let fallback_body =
+            "{\"error\":{\"message\":\"unexpected extra upstream request\",\"type\":\"server_error\"}}"
+                .to_string();
+        loop {
+            let Some((mut stream, captured)) = accept_http_request(&listener, idle_timeout) else {
+                break;
+            };
             let _ = tx.send(captured);
 
+            let (status, body) = responses
+                .get(idx)
+                .map(|(status, body)| (*status, body.as_str()))
+                .unwrap_or((500, fallback_body.as_str()));
             let body_bytes = body.as_bytes().to_vec();
             let header = format!(
                 "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -316,62 +400,7 @@ fn start_mock_upstream_sequence(
                 .write_all(&body_bytes)
                 .expect("write upstream response body");
             let _ = stream.flush();
-        }
-    });
-
-    (addr.to_string(), rx, join)
-}
-
-fn start_mock_upstream_sequence_lenient(
-    responses: Vec<(u16, String)>,
-    idle_timeout: Duration,
-) -> (
-    String,
-    Receiver<CapturedUpstreamRequest>,
-    thread::JoinHandle<()>,
-) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock upstream");
-    listener
-        .set_nonblocking(true)
-        .expect("set nonblocking listener");
-    let addr = listener.local_addr().expect("mock upstream addr");
-    let (tx, rx) = mpsc::channel();
-
-    let join = thread::spawn(move || {
-        let mut idx = 0usize;
-        let mut last_accept_at = Instant::now();
-        while idx < responses.len() {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    last_accept_at = Instant::now();
-                    let _ = stream.set_nonblocking(false);
-                    let captured = read_http_request_once(&mut stream);
-                    let _ = tx.send(captured);
-
-                    let (status, body) = &responses[idx];
-                    let body_bytes = body.as_bytes().to_vec();
-                    let header = format!(
-                        "HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        status,
-                        body_bytes.len()
-                    );
-                    stream
-                        .write_all(header.as_bytes())
-                        .expect("write upstream status");
-                    stream
-                        .write_all(&body_bytes)
-                        .expect("write upstream response body");
-                    let _ = stream.flush();
-                    idx += 1;
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    if last_accept_at.elapsed() >= idle_timeout {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(_) => break,
-            }
+            idx = idx.saturating_add(1);
         }
     });
 
@@ -403,7 +432,7 @@ impl TestServer {
     fn start() -> Self {
         codexmanager_service::clear_shutdown_flag();
         for _ in 0..10 {
-            let probe = TcpListener::bind("127.0.0.1:0").expect("bind probe port");
+            let probe = bind_test_listener("probe");
             let port = probe.local_addr().expect("probe addr").port();
             drop(probe);
 
@@ -2289,7 +2318,10 @@ fn gateway_request_log_keeps_only_final_result_for_multi_attempt_flow() {
     assert!(!final_logs[0].trace_id.as_deref().unwrap_or("").is_empty());
     assert_eq!(final_logs[0].original_path.as_deref(), Some("/v1/messages"));
     assert_eq!(final_logs[0].adapted_path.as_deref(), Some("/v1/responses"));
-    assert_eq!(final_logs[0].response_adapter.as_deref(), Some("AnthropicJson"));
+    assert_eq!(
+        final_logs[0].response_adapter.as_deref(),
+        Some("AnthropicJson")
+    );
 
     let trace_text = fs::read_to_string(&trace_log_path).expect("read trace log");
     assert!(trace_text.contains("event=ATTEMPT_RESULT"));

@@ -1,4 +1,4 @@
-use super::{AccountSummary, RequestLogSummary};
+use super::{AccountListParams, AccountListResult, AccountSummary, RequestLogSummary};
 
 #[test]
 fn account_summary_serialization_matches_compact_contract() {
@@ -7,24 +7,50 @@ fn account_summary_serialization_matches_compact_contract() {
         label: "主账号".to_string(),
         group_name: Some("TEAM".to_string()),
         sort: 10,
+        status: "active".to_string(),
     };
 
     let value = serde_json::to_value(summary).expect("serialize account summary");
     let obj = value.as_object().expect("account summary object");
 
-    for key in ["id", "label", "groupName", "sort"] {
+    for key in ["id", "label", "groupName", "sort", "status"] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
 
-    for key in [
-        "workspaceId",
-        "workspaceName",
-        "note",
-        "tags",
-        "status",
-        "updatedAt",
-    ] {
+    for key in ["workspaceId", "workspaceName", "note", "tags", "updatedAt"] {
         assert!(!obj.contains_key(key), "unexpected key: {key}");
+    }
+}
+
+#[test]
+fn account_list_params_default_to_first_page_with_five_items() {
+    let params: AccountListParams =
+        serde_json::from_value(serde_json::json!({})).expect("deserialize params");
+    let normalized = params.normalized();
+
+    assert_eq!(normalized.page, 1);
+    assert_eq!(normalized.page_size, 5);
+}
+
+#[test]
+fn account_list_result_serialization_includes_pagination_fields() {
+    let result = AccountListResult {
+        items: vec![AccountSummary {
+            id: "acc-1".to_string(),
+            label: "主账号".to_string(),
+            group_name: Some("TEAM".to_string()),
+            sort: 10,
+            status: "active".to_string(),
+        }],
+        total: 9,
+        page: 2,
+        page_size: 3,
+    };
+
+    let value = serde_json::to_value(result).expect("serialize account list result");
+    let obj = value.as_object().expect("account list result object");
+    for key in ["items", "total", "page", "pageSize"] {
+        assert!(obj.contains_key(key), "missing key: {key}");
     }
 }
 
