@@ -1,4 +1,4 @@
-use super::{RequestLogTodaySummary, RequestTokenStat, Result, Storage, StorageBackend};
+use super::{connect_postgres, RequestLogTodaySummary, RequestTokenStat, Result, Storage, StorageBackend};
 
 impl Storage {
     pub fn insert_request_token_stat(&self, stat: &RequestTokenStat) -> Result<()> {
@@ -27,7 +27,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO request_token_stats (
                         request_log_id, key_id, account_id, model,
@@ -89,7 +89,7 @@ impl Storage {
                 })
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one(
                     "SELECT
                         COALESCE(SUM(input_tokens), 0)::BIGINT,

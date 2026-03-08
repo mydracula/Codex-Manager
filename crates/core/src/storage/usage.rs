@@ -1,6 +1,6 @@
 use rusqlite::Row;
 
-use super::{Result, Storage, StorageBackend, UsageSnapshotRecord};
+use super::{connect_postgres, Result, Storage, StorageBackend, UsageSnapshotRecord};
 
 impl Storage {
     pub fn insert_usage_snapshot(&self, snap: &UsageSnapshotRecord) -> Result<()> {
@@ -23,7 +23,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO usage_snapshots (account_id, used_percent, window_minutes, resets_at, secondary_used_percent, secondary_window_minutes, secondary_resets_at, credits_json, captured_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
@@ -69,7 +69,7 @@ impl Storage {
                 )
                 .map_err(Into::into),
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let deleted = client.execute(
                     "DELETE FROM usage_snapshots
                      WHERE account_id = $1
@@ -98,7 +98,7 @@ impl Storage {
                 )
                 .map_err(Into::into),
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one(
                     "SELECT COUNT(1) FROM usage_snapshots WHERE account_id = $1",
                     &[&account_id],
@@ -122,7 +122,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT account_id, used_percent, window_minutes, resets_at, secondary_used_percent, secondary_window_minutes, secondary_resets_at, credits_json, captured_at
                      FROM usage_snapshots
@@ -156,7 +156,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT account_id, used_percent, window_minutes, resets_at, secondary_used_percent, secondary_window_minutes, secondary_resets_at, credits_json, captured_at
                      FROM usage_snapshots
@@ -213,7 +213,7 @@ impl Storage {
                 Ok(out)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(sql, &[])?;
                 Ok(rows.into_iter().map(map_usage_snapshot_row_pg).collect())
             }

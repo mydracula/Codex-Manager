@@ -1,6 +1,6 @@
 use rusqlite::Row;
 
-use super::{Result, Storage, StorageBackend, Token};
+use super::{connect_postgres, Result, Storage, StorageBackend, Token};
 
 impl Storage {
     pub fn insert_token(&self, token: &Token) -> Result<()> {
@@ -27,7 +27,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO tokens (account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh)
                      VALUES ($1, $2, $3, $4, $5, $6)
@@ -70,7 +70,7 @@ impl Storage {
                 Ok(out)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(
                     "SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh
                      FROM tokens
@@ -103,7 +103,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE tokens
                      SET access_token_exp = $1,
@@ -128,7 +128,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE tokens
                      SET last_refresh_attempt_at = $1
@@ -147,7 +147,7 @@ impl Storage {
                 .query_row("SELECT COUNT(1) FROM tokens", [], |row| row.get(0))
                 .map_err(Into::into),
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one("SELECT COUNT(1) FROM tokens", &[])?;
                 Ok(row.get(0))
             }
@@ -168,7 +168,7 @@ impl Storage {
                 Ok(out)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(
                     "SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh FROM tokens",
                     &[],
@@ -195,7 +195,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh
                      FROM tokens

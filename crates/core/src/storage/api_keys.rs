@@ -1,6 +1,6 @@
 use rusqlite::Row;
 
-use super::{now_ts, ApiKey, Result, Storage, StorageBackend};
+use super::{connect_postgres, now_ts, ApiKey, Result, Storage, StorageBackend};
 
 const API_KEY_SELECT_SQL: &str = "SELECT
     k.id,
@@ -74,7 +74,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO api_keys (id, name, model_slug, reasoning_effort, key_hash, status, created_at, last_used_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -141,7 +141,7 @@ impl Storage {
                 Ok(out)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(
                     &format!("{API_KEY_SELECT_SQL} ORDER BY k.created_at DESC"),
                     &[],
@@ -167,7 +167,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     &format!(
                         "{API_KEY_SELECT_SQL}
@@ -197,7 +197,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     &format!(
                         "{API_KEY_SELECT_SQL}
@@ -221,7 +221,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE api_keys SET last_used_at = $1 WHERE key_hash = $2",
                     &[&now_ts(), &key_hash],
@@ -241,7 +241,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE api_keys SET status = $1 WHERE id = $2",
                     &[&status, &key_id],
@@ -261,7 +261,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE api_keys SET model_slug = $1 WHERE id = $2",
                     &[&model_slug, &key_id],
@@ -319,7 +319,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE api_keys SET model_slug = $1, reasoning_effort = $2 WHERE id = $3",
                     &[&model_slug, &reasoning_effort, &key_id],
@@ -419,7 +419,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO api_key_profiles (
                         key_id,
@@ -478,7 +478,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute("DELETE FROM api_key_secrets WHERE key_id = $1", &[&key_id])?;
                 client.execute("DELETE FROM api_keys WHERE id = $1", &[&key_id])?;
                 Ok(())
@@ -501,7 +501,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO api_key_secrets (key_id, key_value, created_at, updated_at)
                      VALUES ($1, $2, $3, $3)
@@ -529,7 +529,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT key_value FROM api_key_secrets WHERE key_id = $1 LIMIT 1",
                     &[&key_id],

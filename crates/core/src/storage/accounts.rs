@@ -1,7 +1,7 @@
 use postgres::types::ToSql;
 use rusqlite::{params_from_iter, types::Value, Row};
 
-use super::{now_ts, Account, Result, Storage, StorageBackend, Token};
+use super::{connect_postgres, now_ts, Account, Result, Storage, StorageBackend, Token};
 
 #[derive(Clone, Copy)]
 enum AccountUsageQueryMode {
@@ -42,7 +42,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO accounts (id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -81,7 +81,7 @@ impl Storage {
                 .query_row("SELECT COUNT(1) FROM accounts", [], |row| row.get(0))
                 .map_err(Into::into),
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one("SELECT COUNT(1) FROM accounts", &[])?;
                 Ok(row.get(0))
             }
@@ -108,7 +108,7 @@ impl Storage {
                     build_account_where_clause_pg(query, group_name, "accounts", 1);
                 let sql = format!("SELECT COUNT(1) FROM accounts{where_clause}");
                 let refs = pg_param_refs(&params);
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one(&sql, &refs)?;
                 Ok(row.get(0))
             }
@@ -217,7 +217,7 @@ impl Storage {
                 Ok(out)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(&sql, &[])?;
                 Ok(rows.into_iter().map(map_gateway_candidate_row_pg).collect())
             }
@@ -241,7 +241,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT id, label, issuer, chatgpt_account_id, workspace_id, group_name, sort, status, created_at, updated_at
                      FROM accounts
@@ -265,7 +265,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE accounts SET sort = $1, updated_at = $2 WHERE id = $3",
                     &[&sort, &updated_at, &account_id],
@@ -286,7 +286,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE accounts SET status = $1, updated_at = $2 WHERE id = $3",
                     &[&status, &updated_at, &account_id],
@@ -307,7 +307,7 @@ impl Storage {
                 Ok(updated > 0)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let updated = client.execute(
                     "UPDATE accounts SET status = $1, updated_at = $2 WHERE id = $3 AND status != $1",
                     &[&status, &updated_at, &account_id],
@@ -332,7 +332,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let mut tx = client.transaction()?;
                 tx.execute("DELETE FROM tokens WHERE account_id = $1", &[&account_id])?;
                 tx.execute("DELETE FROM usage_snapshots WHERE account_id = $1", &[&account_id])?;
@@ -402,7 +402,7 @@ impl Storage {
                 }
 
                 let refs = pg_param_refs(&params);
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(&sql, &refs)?;
                 Ok(rows.into_iter().map(map_account_row_pg).collect())
             }
@@ -483,7 +483,7 @@ impl Storage {
                 }
 
                 let refs = pg_param_refs(&params);
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(&sql, &refs)?;
                 Ok(rows.into_iter().map(map_account_row_pg).collect())
             }
@@ -537,7 +537,7 @@ impl Storage {
                     latest_usage_cte = latest_usage_cte_sql(),
                 );
                 let refs = pg_param_refs(&params);
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one(&sql, &refs)?;
                 Ok(row.get(0))
             }

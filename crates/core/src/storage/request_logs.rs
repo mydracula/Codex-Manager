@@ -1,7 +1,7 @@
 use postgres::types::ToSql;
 use rusqlite::Row;
 
-use super::{
+use super::{connect_postgres, 
     request_log_query, RequestLog, RequestLogTodaySummary, RequestTokenStat, Result, Storage,
     StorageBackend,
 };
@@ -67,7 +67,7 @@ impl Storage {
                 Ok(self.conn().last_insert_rowid())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_one(
                     "INSERT INTO request_logs (
                         trace_id, key_id, account_id, request_path, original_path, adapted_path,
@@ -156,7 +156,7 @@ impl Storage {
                 Ok((request_log_id, token_stat_error))
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let mut tx = client.transaction()?;
                 let row = tx.query_one(
                     "INSERT INTO request_logs (
@@ -351,7 +351,7 @@ impl Storage {
             StorageBackend::PostgresUrl(url) => {
                 let (sql, params) = build_request_logs_query_pg(query, normalized_limit);
                 let refs = pg_param_refs(&params);
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(&sql, &refs)?;
                 Ok(rows.into_iter().map(map_request_log_row_pg).collect())
             }
@@ -365,7 +365,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute("DELETE FROM request_logs", &[])?;
                 Ok(())
             }

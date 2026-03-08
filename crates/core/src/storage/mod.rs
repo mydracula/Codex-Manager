@@ -1,4 +1,6 @@
-use postgres::{Client, NoTls};
+use native_tls::TlsConnector;
+use postgres::Client;
+use postgres_native_tls::MakeTlsConnector;
 use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
@@ -6,12 +8,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type Result<T> = std::result::Result<T, StorageError>;
 
+pub(crate) fn connect_postgres(url: &str) -> Result<Client> {
+    let tls = TlsConnector::builder().build()?;
+    let connector = MakeTlsConnector::new(tls);
+    Ok(Client::connect(url, connector)?)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error(transparent)]
     Postgres(#[from] postgres::Error),
+    #[error(transparent)]
+    Tls(#[from] native_tls::Error),
     #[error("storage backend not implemented yet: {0}")]
     BackendNotImplemented(String),
     #[error("unsupported storage backend: {0}")]
@@ -239,7 +249,7 @@ impl Storage {
     }
 
     fn init_postgres(&self, url: &str) -> Result<()> {
-        let mut client = Client::connect(url, NoTls)?;
+        let mut client = connect_postgres(url)?;
         client.batch_execute(include_str!("../../migrations/postgres/001_baseline.sql"))?;
         client.execute(
             "INSERT INTO schema_migrations (version, applied_at)
@@ -411,7 +421,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = Client::connect(url, NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO login_sessions (login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -458,7 +468,7 @@ impl Storage {
                 }
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = Client::connect(url, NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT login_id, code_verifier, state, status, error, note, tags, group_name, created_at, updated_at
                      FROM login_sessions
@@ -496,7 +506,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = Client::connect(url, NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "UPDATE login_sessions SET status = $1, error = $2, updated_at = $3 WHERE login_id = $4",
                     &[&status, &error, &now_ts(), &login_id],

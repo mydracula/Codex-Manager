@@ -1,7 +1,7 @@
 use postgres::types::ToSql;
 use rusqlite::params;
 
-use super::{Result, Storage, StorageBackend};
+use super::{connect_postgres, Result, Storage, StorageBackend};
 
 impl Storage {
     pub fn list_app_settings(&self) -> Result<Vec<(String, String)>> {
@@ -20,7 +20,7 @@ impl Storage {
                 Ok(items)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let rows = client.query(
                     "SELECT key, value FROM app_settings ORDER BY key ASC",
                     &[],
@@ -49,7 +49,7 @@ impl Storage {
                 Ok(None)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT value FROM app_settings WHERE key = $1 LIMIT 1",
                     &[&key],
@@ -73,7 +73,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO app_settings (key, value, updated_at)
                      VALUES ($1, $2, $3)
@@ -95,7 +95,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute("DELETE FROM app_settings WHERE key = $1", &[&key])?;
                 Ok(())
             }

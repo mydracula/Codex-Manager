@@ -1,6 +1,6 @@
 use rusqlite::params;
 
-use super::{ModelOptionsCacheRecord, Result, Storage, StorageBackend};
+use super::{connect_postgres, ModelOptionsCacheRecord, Result, Storage, StorageBackend};
 
 impl Storage {
     pub fn upsert_model_options_cache(
@@ -22,7 +22,7 @@ impl Storage {
                 Ok(())
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 client.execute(
                     "INSERT INTO model_options_cache (scope, items_json, updated_at)
                      VALUES ($1, $2, $3)
@@ -59,7 +59,7 @@ impl Storage {
                 Ok(None)
             }
             StorageBackend::PostgresUrl(url) => {
-                let mut client = postgres::Client::connect(url, postgres::NoTls)?;
+                let mut client = connect_postgres(url)?;
                 let row = client.query_opt(
                     "SELECT scope, items_json, updated_at
                      FROM model_options_cache

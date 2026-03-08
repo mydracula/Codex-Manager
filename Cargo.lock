@@ -202,7 +202,9 @@ name = "codexmanager-core"
 version = "0.1.6"
 dependencies = [
  "base64",
+ "native-tls",
  "postgres",
+ "postgres-native-tls",
  "rand 0.8.5",
  "rusqlite",
  "serde",
@@ -1287,6 +1289,18 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "postgres-native-tls"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac73153d92e4bde922bd6f1dfba7f1ab8132266c031153b55e20a1521cd36d49"
+dependencies = [
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
  "tokio-postgres",
 ]
 
