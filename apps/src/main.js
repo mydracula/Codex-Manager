@@ -55,9 +55,7 @@ import {
   clearRequestLogs,
 } from "./services/data";
 import {
-  ensureAutoRefreshTimer,
   runRefreshTasks,
-  stopAutoRefreshTimer,
 } from "./services/refresh";
 import { createServiceLifecycle } from "./services/service-lifecycle";
 import { createLoginFlow } from "./services/login-flow";
@@ -89,7 +87,6 @@ const {
 });
 
 function renderCurrentPageView(page = state.currentPage) {
-  ensureRequestLogsReadyForPage(page);
   renderCurrentView(page, buildMainRenderActions());
 }
 
@@ -129,6 +126,55 @@ const { switchPage, updateRequestLogFilterButtons } = createNavigationHandlers({
     renderCurrentPageView(page);
     if (page === "accounts") {
       void reloadAccountsPage({ silent: true, latestOnly: true });
+      return;
+    }
+    if (page === "apikeys" && state.apiKeyList.length === 0) {
+      void (async () => {
+        const ok = await ensureConnected();
+        serviceLifecycle.updateServiceToggle();
+        if (!ok) return;
+        try {
+          await refreshApiKeys();
+          renderCurrentPageView("apikeys");
+        } catch (err) {
+          console.error("[apikeys] initial load failed", err);
+        }
+      })();
+      return;
+    }
+    if (page === "dashboard") {
+      const needsDashboardData = state.usageList.length === 0;
+      if (needsDashboardData) {
+        void (async () => {
+          const ok = await ensureConnected();
+          serviceLifecycle.updateServiceToggle();
+          if (!ok) return;
+          try {
+            await refreshUsageList({ refreshRemote: false });
+            renderCurrentPageView("dashboard");
+          } catch (err) {
+            console.error("[dashboard] initial usage load failed", err);
+          }
+        })();
+      }
+      return;
+    }
+    if (page === "requestlogs" && state.requestLogList.length === 0 && !requestLogsInitialLoadInFlight) {
+      requestLogsInitialLoadInFlight = (async () => {
+        const ok = await ensureConnected();
+        serviceLifecycle.updateServiceToggle();
+        if (!ok) return;
+        try {
+          const applied = await refreshRequestLogs(state.requestLogQuery, { latestOnly: true, timeoutMs: 15000 });
+          if (applied !== false && state.currentPage === "requestlogs") {
+            renderCurrentPageView("requestlogs");
+          }
+        } catch (err) {
+          console.error("[requestlogs] initial load failed", err);
+        } finally {
+          requestLogsInitialLoadInFlight = null;
+        }
+      })();
     }
   },
 });
@@ -187,7 +233,7 @@ let backgroundTasksSyncInFlight = null;
 let backgroundTasksSyncedProbeId = -1;
 let startupServiceSyncInFlight = null;
 let apiModelsRemoteRefreshInFlight = null;
-let requestLogsBootstrapRefreshInFlight = null;
+let requestLogsInitialLoadInFlight = null;
 let envOverrideSelectedKey = "";
 let appSettingsSnapshot = buildDefaultAppSettingsSnapshot();
 
@@ -307,16 +353,36 @@ async function saveAppSettingsPatch(patch = {}) {
 function buildRefreshAllTasks(options = {}) {
   const refreshRemoteUsage = options.refreshRemoteUsage === true;
   const refreshRemoteModels = options.refreshRemoteModels === true;
-  const includeRequestLogs = options.includeRequestLogs !== false;
-  const tasks = [
-    { name: "accounts", label: "账号列表", run: refreshAccounts },
-    { name: "account-stats", label: "账号统计", run: refreshAccountStats },
-    { name: "dashboard-highlights", label: "仪表盘摘要", run: refreshDashboardHighlights },
-    { name: "usage", label: "账号用量", run: () => refreshUsageList({ refreshRemote: refreshRemoteUsage }) },
-    { name: "api-models", label: "模型列表", run: () => refreshApiModels({ refreshRemote: refreshRemoteModels }) },
-    { name: "api-keys", label: "平台密钥", run: refreshApiKeys },
-    { name: "request-log-today-summary", label: "今日摘要", run: refreshRequestLogTodaySummary },
-  ];
+  const includeAccounts = options.includeAccounts !== false;
+  const includeAccountStats = options.includeAccountStats === true;
+  const includeDashboardHighlights = options.includeDashboardHighlights === true;
+  const includeUsage = options.includeUsage === true;
+  const includeApiModels = options.includeApiModels === true;
+  const includeApiKeys = options.includeApiKeys === true;
+  const includeRequestLogTodaySummary = options.includeRequestLogTodaySummary === true;
+  const includeRequestLogs = options.includeRequestLogs === true;
+  const tasks = [];
+  if (includeAccounts) {
+    tasks.push({ name: "accounts", label: "账号列表", run: refreshAccounts });
+  }
+  if (includeAccountStats) {
+    tasks.push({ name: "account-stats", label: "账号统计", run: refreshAccountStats });
+  }
+  if (includeDashboardHighlights) {
+    tasks.push({ name: "dashboard-highlights", label: "仪表盘摘要", run: refreshDashboardHighlights });
+  }
+  if (includeUsage) {
+    tasks.push({ name: "usage", label: "账号用量", run: () => refreshUsageList({ refreshRemote: refreshRemoteUsage }) });
+  }
+  if (includeApiModels) {
+    tasks.push({ name: "api-models", label: "模型列表", run: () => refreshApiModels({ refreshRemote: refreshRemoteModels }) });
+  }
+  if (includeApiKeys) {
+    tasks.push({ name: "api-keys", label: "平台密钥", run: refreshApiKeys });
+  }
+  if (includeRequestLogTodaySummary) {
+    tasks.push({ name: "request-log-today-summary", label: "今日摘要", run: refreshRequestLogTodaySummary });
+  }
   if (includeRequestLogs) {
     tasks.push({ name: "request-logs", label: "请求日志", run: () => refreshRequestLogs(state.requestLogQuery) });
   }
@@ -2191,11 +2257,7 @@ const serviceLifecycle = createServiceLifecycle({
   stopService,
   waitForConnection,
   refreshAll,
-  maybeRefreshApiModelsCache,
-  ensureAutoRefreshTimer,
-  stopAutoRefreshTimer,
   onStartupState: (loading, message) => setStartupMask(loading, message),
-  onDeferredRequestLogsRefresh: scheduleDeferredRequestLogsRefresh,
 });
 
 const loginFlow = createLoginFlow({
@@ -2203,7 +2265,7 @@ const loginFlow = createLoginFlow({
   state,
   withButtonBusy,
   ensureConnected,
-  refreshAll,
+  refreshAccountsAndUsage,
   closeAccountModal,
 });
 
@@ -2266,60 +2328,6 @@ function renderAccountsView() {
   renderAccountsOnly(buildMainRenderActions());
 }
 
-function ensureRequestLogsReadyForPage(page = state.currentPage) {
-  if (page !== "requestlogs") {
-    return;
-  }
-  if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
-    return;
-  }
-  requestLogsBootstrapRefreshInFlight = (async () => {
-    try {
-      const ok = await ensureConnected();
-      serviceLifecycle.updateServiceToggle();
-      if (!ok) return;
-      const applied = await refreshRequestLogs(state.requestLogQuery, { latestOnly: true, timeoutMs: 15000 });
-      if (applied !== false) {
-        renderCurrentPageView("requestlogs");
-      }
-    } catch (err) {
-      console.warn("[requestlogs] deferred refresh failed", err);
-    } finally {
-      requestLogsBootstrapRefreshInFlight = null;
-    }
-  })();
-}
-
-function scheduleDeferredRequestLogsRefresh() {
-  if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
-    return;
-  }
-  const run = () => {
-    if (requestLogsBootstrapRefreshInFlight || state.requestLogList.length > 0) {
-      return;
-    }
-    requestLogsBootstrapRefreshInFlight = (async () => {
-      try {
-        const applied = await refreshRequestLogs(state.requestLogQuery, {
-          latestOnly: true,
-          timeoutMs: 15000,
-        });
-        if (applied !== false && state.currentPage === "requestlogs") {
-          renderCurrentPageView("requestlogs");
-        }
-      } catch (err) {
-        console.warn("[requestlogs] background refresh failed", err);
-      } finally {
-        requestLogsBootstrapRefreshInFlight = null;
-      }
-    })();
-  };
-  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(run, { timeout: 1200 });
-    return;
-  }
-  setTimeout(run, 400);
-}
 
 async function persistServiceAddrInput({ silent = true } = {}) {
   if (!dom.serviceAddrInput) {
