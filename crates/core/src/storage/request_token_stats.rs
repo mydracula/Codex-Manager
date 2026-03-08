@@ -92,11 +92,11 @@ impl Storage {
                 let mut client = postgres::Client::connect(url, postgres::NoTls)?;
                 let row = client.query_one(
                     "SELECT
-                        COALESCE(SUM(input_tokens), 0),
-                        COALESCE(SUM(cached_input_tokens), 0),
-                        COALESCE(SUM(output_tokens), 0),
-                        COALESCE(SUM(reasoning_output_tokens), 0),
-                        COALESCE(SUM(estimated_cost_usd), 0.0)
+                        COALESCE(SUM(input_tokens), 0)::BIGINT,
+                        COALESCE(SUM(cached_input_tokens), 0)::BIGINT,
+                        COALESCE(SUM(output_tokens), 0)::BIGINT,
+                        COALESCE(SUM(reasoning_output_tokens), 0)::BIGINT,
+                        COALESCE(SUM(estimated_cost_usd), 0.0)::DOUBLE PRECISION
                      FROM request_token_stats
                      WHERE created_at >= $1 AND created_at < $2",
                     &[&start_ts, &end_ts],
