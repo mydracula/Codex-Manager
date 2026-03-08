@@ -44,4 +44,5 @@ export const state = {
   currentUsageAccount: null,
   activeLoginId: null,
   autoRefreshTimer: null,
+  dashboardInitialLoadDone: false,
 };

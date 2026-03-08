@@ -143,17 +143,33 @@ const { switchPage, updateRequestLogFilterButtons } = createNavigationHandlers({
       return;
     }
     if (page === "dashboard") {
-      const needsDashboardData = state.usageList.length === 0;
-      if (needsDashboardData) {
+      if (!state.dashboardInitialLoadDone) {
+        state.dashboardInitialLoadDone = true;
         void (async () => {
           const ok = await ensureConnected();
           serviceLifecycle.updateServiceToggle();
-          if (!ok) return;
+          if (!ok) {
+            state.dashboardInitialLoadDone = false;
+            return;
+          }
           try {
-            await refreshUsageList({ refreshRemote: false });
-            renderCurrentPageView("dashboard");
+            await runRefreshTasks(
+              [
+                { name: "account-stats", run: refreshAccountStats },
+                { name: "dashboard-highlights", run: refreshDashboardHighlights },
+                { name: "usage", run: () => refreshUsageList({ refreshRemote: false }) },
+                { name: "request-log-today-summary", run: refreshRequestLogTodaySummary },
+              ],
+              (taskName, err) => {
+                console.error(`[dashboard] ${taskName} initial load failed`, err);
+              },
+            );
+            if (state.currentPage === "dashboard") {
+              renderCurrentPageView("dashboard");
+            }
           } catch (err) {
-            console.error("[dashboard] initial usage load failed", err);
+            state.dashboardInitialLoadDone = false;
+            console.error("[dashboard] initial load failed", err);
           }
         })();
       }
