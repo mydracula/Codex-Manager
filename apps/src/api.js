@@ -454,9 +454,13 @@ export async function serviceAccountDashboardHighlights() {
 
 export async function serviceUsageRefresh(accountId) {
   if (!isTauriRuntime()) {
-    return rpcInvoke("account/usage/refresh", accountId ? { accountId } : undefined);
+    return rpcInvoke("account/usage/refresh", accountId ? { accountId } : undefined, {
+      timeoutMs: 45000,
+    });
   }
-  return invoke("service_usage_refresh", withAddr({ accountId }));
+  return invoke("service_usage_refresh", withAddr({ accountId }), {
+    timeoutMs: 45000,
+  });
 }
 
 export async function serviceRequestLogList(query, limit, options = {}) {
