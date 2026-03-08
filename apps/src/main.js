@@ -118,81 +118,83 @@ async function reloadAccountsPage(options = {}) {
   }
 }
 
+function handlePageActivated(page) {
+  renderCurrentPageView(page);
+  if (page === "accounts") {
+    void reloadAccountsPage({ silent: true, latestOnly: true });
+    return;
+  }
+  if (page === "apikeys" && state.apiKeyList.length === 0) {
+    void (async () => {
+      const ok = await ensureConnected();
+      serviceLifecycle.updateServiceToggle();
+      if (!ok) return;
+      try {
+        await refreshApiKeys();
+        renderCurrentPageView("apikeys");
+      } catch (err) {
+        console.error("[apikeys] initial load failed", err);
+      }
+    })();
+    return;
+  }
+  if (page === "dashboard") {
+    if (!state.dashboardInitialLoadDone) {
+      state.dashboardInitialLoadDone = true;
+      void (async () => {
+        const ok = await ensureConnected();
+        serviceLifecycle.updateServiceToggle();
+        if (!ok) {
+          state.dashboardInitialLoadDone = false;
+          return;
+        }
+        try {
+          await runRefreshTasks(
+            [
+              { name: "account-stats", run: refreshAccountStats },
+              { name: "dashboard-highlights", run: refreshDashboardHighlights },
+              { name: "usage", run: () => refreshUsageList({ refreshRemote: false }) },
+              { name: "request-log-today-summary", run: refreshRequestLogTodaySummary },
+            ],
+            (taskName, err) => {
+              console.error(`[dashboard] ${taskName} initial load failed`, err);
+            },
+          );
+          if (state.currentPage === "dashboard") {
+            renderCurrentPageView("dashboard");
+          }
+        } catch (err) {
+          state.dashboardInitialLoadDone = false;
+          console.error("[dashboard] initial load failed", err);
+        }
+      })();
+    }
+    return;
+  }
+  if (page === "requestlogs" && state.requestLogList.length === 0 && !requestLogsInitialLoadInFlight) {
+    requestLogsInitialLoadInFlight = (async () => {
+      const ok = await ensureConnected();
+      serviceLifecycle.updateServiceToggle();
+      if (!ok) return;
+      try {
+        const applied = await refreshRequestLogs(state.requestLogQuery, { latestOnly: true, timeoutMs: 15000 });
+        if (applied !== false && state.currentPage === "requestlogs") {
+          renderCurrentPageView("requestlogs");
+        }
+      } catch (err) {
+        console.error("[requestlogs] initial load failed", err);
+      } finally {
+        requestLogsInitialLoadInFlight = null;
+      }
+    })();
+  }
+}
+
 const { switchPage, updateRequestLogFilterButtons } = createNavigationHandlers({
   state,
   dom,
   closeThemePanel,
-  onPageActivated: (page) => {
-    renderCurrentPageView(page);
-    if (page === "accounts") {
-      void reloadAccountsPage({ silent: true, latestOnly: true });
-      return;
-    }
-    if (page === "apikeys" && state.apiKeyList.length === 0) {
-      void (async () => {
-        const ok = await ensureConnected();
-        serviceLifecycle.updateServiceToggle();
-        if (!ok) return;
-        try {
-          await refreshApiKeys();
-          renderCurrentPageView("apikeys");
-        } catch (err) {
-          console.error("[apikeys] initial load failed", err);
-        }
-      })();
-      return;
-    }
-    if (page === "dashboard") {
-      if (!state.dashboardInitialLoadDone) {
-        state.dashboardInitialLoadDone = true;
-        void (async () => {
-          const ok = await ensureConnected();
-          serviceLifecycle.updateServiceToggle();
-          if (!ok) {
-            state.dashboardInitialLoadDone = false;
-            return;
-          }
-          try {
-            await runRefreshTasks(
-              [
-                { name: "account-stats", run: refreshAccountStats },
-                { name: "dashboard-highlights", run: refreshDashboardHighlights },
-                { name: "usage", run: () => refreshUsageList({ refreshRemote: false }) },
-                { name: "request-log-today-summary", run: refreshRequestLogTodaySummary },
-              ],
-              (taskName, err) => {
-                console.error(`[dashboard] ${taskName} initial load failed`, err);
-              },
-            );
-            if (state.currentPage === "dashboard") {
-              renderCurrentPageView("dashboard");
-            }
-          } catch (err) {
-            state.dashboardInitialLoadDone = false;
-            console.error("[dashboard] initial load failed", err);
-          }
-        })();
-      }
-      return;
-    }
-    if (page === "requestlogs" && state.requestLogList.length === 0 && !requestLogsInitialLoadInFlight) {
-      requestLogsInitialLoadInFlight = (async () => {
-        const ok = await ensureConnected();
-        serviceLifecycle.updateServiceToggle();
-        if (!ok) return;
-        try {
-          const applied = await refreshRequestLogs(state.requestLogQuery, { latestOnly: true, timeoutMs: 15000 });
-          if (applied !== false && state.currentPage === "requestlogs") {
-            renderCurrentPageView("requestlogs");
-          }
-        } catch (err) {
-          console.error("[requestlogs] initial load failed", err);
-        } finally {
-          requestLogsInitialLoadInFlight = null;
-        }
-      })();
-    }
-  },
+  onPageActivated: handlePageActivated,
 });
 
 const { setStartupMask } = createStartupMaskController({ dom, state });
@@ -2821,7 +2823,7 @@ async function bootstrap() {
   serviceLifecycle.restoreServiceAddr();
   serviceLifecycle.updateServiceToggle();
   bindEvents();
-  renderCurrentPageView();
+  handlePageActivated(state.currentPage);
   updateRequestLogFilterButtons();
   scheduleStartupUpdateCheck();
   void serviceLifecycle.autoStartService().finally(() => {
